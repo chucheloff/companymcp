@@ -1,0 +1,37 @@
+services:
+  valkey:
+    image: valkey/valkey:8-alpine
+    container_name: company-valkey
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  company-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: company-fastapi
+    restart: unless-stopped
+    environment:
+      APP_HOST: 0.0.0.0
+      APP_PORT: 8080
+      MCP_PATH: /mcp
+      VALKEY_URL: redis://valkey:6379/0
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    command: ["uv", "run", "python", "-m", "company_mcp.main"]
+    depends_on:
+      valkey:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
