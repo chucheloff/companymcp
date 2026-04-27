@@ -24,7 +24,6 @@ async def fetch_recent_news(data: RecentNewsInput) -> RecentNewsOutput:
         )
 
     payload = {
-        "api_key": settings.tavily_api_key,
         "query": query,
         "topic": "news",
         "days": data.days,
@@ -36,15 +35,34 @@ async def fetch_recent_news(data: RecentNewsInput) -> RecentNewsOutput:
     items: list[RecentNewsItem] = []
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
-            response = await client.post("https://api.tavily.com/search", json=payload)
+            response = await client.post(
+                "https://api.tavily.com/search",
+                json=payload,
+                headers={
+                    # Tavily supports key-based auth headers; keep both for compatibility.
+                    "Authorization": f"Bearer {settings.tavily_api_key}",
+                    "x-api-key": settings.tavily_api_key,
+                    "Content-Type": "application/json",
+                },
+            )
             response.raise_for_status()
             result_json = response.json()
-    except Exception:
+    except httpx.HTTPStatusError as exc:
+        detail = exc.response.text.strip().replace("\n", " ")
+        if len(detail) > 220:
+            detail = f"{detail[:220]}..."
         return RecentNewsOutput(
             items=[],
             query_used=query,
             confidence=0.0,
-            warnings=["Failed to fetch news from Tavily."],
+            warnings=[f"Tavily HTTP {exc.response.status_code}: {detail or 'No response body'}"],
+        )
+    except Exception as exc:
+        return RecentNewsOutput(
+            items=[],
+            query_used=query,
+            confidence=0.0,
+            warnings=[f"Failed to fetch news from Tavily: {exc}"],
         )
 
     seen: set[str] = set()

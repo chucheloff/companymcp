@@ -2,6 +2,33 @@
 
 Standalone MCP server for interview-prep company research. This repository is scoped to the custom research MCP only; the OpenClaw agent, Gmail MCP, Slack MCP, and deployment automation live outside this project.
 
+## Quick Start
+
+1. Copy environment template:
+   - `cp .env.example .env`
+2. Set required keys in `.env`:
+   - `TAVILY_API_KEY` (needed for `recent_news`)
+   - `OPENROUTER_API_KEY` (reserved for upcoming extractor/synthesis model calls)
+3. Start services:
+   - `make up`
+4. Check health:
+   - `make health` or `curl http://localhost:8080/healthz`
+5. Stop services:
+   - `make down`
+
+The FastAPI service exposes MCP over HTTP at `http://localhost:8080/mcp`.
+
+### Make Targets
+
+- `make build` build images
+- `make up` start `company-api` and `valkey`
+- `make down` stop stack
+- `make restart` recreate stack
+- `make logs` follow logs
+- `make ps` show service status
+- `make clean` remove containers + volumes
+- `make test` run `pytest`
+
 ## Goal
 
 Expose a small set of reliable, cached research tools that an OpenClaw agent can call after it detects an interview invitation:

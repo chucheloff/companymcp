@@ -3,8 +3,6 @@ services:
     image: valkey/valkey:8-alpine
     container_name: company-valkey
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
