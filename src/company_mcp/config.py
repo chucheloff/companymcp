@@ -13,12 +13,15 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     app_host: str = "0.0.0.0"
     app_port: int = 8080
-    mcp_port: int = 8081
     mcp_path: str = "/mcp"
 
     tavily_api_key: str | None = Field(default=None)
     openrouter_api_key: str | None = Field(default=None)
+    openrouter_extraction_model: str = "anthropic/claude-3.5-haiku"
+    openrouter_quality_model: str = "anthropic/claude-3-opus"
     valkey_url: str = "redis://valkey:6379/0"
+    valkey_retry_seconds: float = 5.0
+    browser_timeout_ms: int = 12_000
 
 
 settings = Settings()

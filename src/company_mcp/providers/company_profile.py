@@ -1,13 +1,17 @@
-import re
 import socket
 from ipaddress import ip_address
-from html import unescape
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 
 from company_mcp.cache.store import get_json, set_json
+from company_mcp.extractors.base import PageDocument
+from company_mcp.extractors.browser_snapshot import snapshot_url
+from company_mcp.extractors.html_utils import extract_meta, extract_text, extract_title
+from company_mcp.extractors.registry import EXTRACTOR_VERSION, merge_facts, run_extractors
 from company_mcp.mcp.schemas import CompanyPayload, CompanyProfileInput, CompanyProfileOutput, SourceEvidence
+
+MAX_REDIRECTS = 5
 
 
 def _normalize_domain(domain: str) -> str:
@@ -37,36 +41,77 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
             warnings=["Domain is blocked by SSRF policy (localhost/private IP/reserved target)."],
         )
 
-    cache_key = f"company_profile:v1:{normalized_domain}"
+    cache_key = f"company_profile:{EXTRACTOR_VERSION}:{normalized_domain}:{data.pipeline}"
     cached = await get_json(cache_key)
     if cached:
         return CompanyProfileOutput.model_validate(cached)
 
     homepage = f"https://{normalized_domain}"
-    candidates = [homepage, f"{homepage}/about", f"{homepage}/careers", f"{homepage}/team"]
+    candidates = [
+        homepage,
+        f"{homepage}/about",
+        f"{homepage}/company",
+        f"{homepage}/careers",
+        f"{homepage}/jobs",
+        f"{homepage}/team",
+        f"{homepage}/press",
+        f"{homepage}/news",
+    ]
     selected_urls = candidates[: data.max_pages]
 
     warnings: list[str] = []
     sources: list[SourceEvidence] = []
-    combined_text: list[str] = []
+    pages: list[PageDocument] = []
 
-    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+    if data.pipeline == "browser_snapshot":
         for url in selected_urls:
             try:
-                response = await client.get(url)
-                if response.status_code >= 400:
-                    warnings.append(f"Skipped {url}: HTTP {response.status_code}.")
-                    continue
-                html_text = response.text
-                title = _extract_title(html_text) or f"{normalized_domain} page"
-                description = _extract_meta_description(html_text)
+                page = await snapshot_url(url, validate_url=_validate_public_url)
+                description = (
+                    page.metadata.get("description")
+                    or page.metadata.get("og:description")
+                    or page.metadata.get("twitter:description")
+                )
                 evidence = description or "Fetched page successfully."
-                sources.append(SourceEvidence(url=str(response.url), title=title, evidence=evidence))
-                combined_text.append(" ".join(filter(None, [title, description])))
-            except Exception:
-                warnings.append(f"Failed to fetch {url}.")
+                sources.append(SourceEvidence(url=page.url, title=page.title, evidence=evidence))
+                pages.append(page)
+            except UnsafeUrlError as exc:
+                warnings.append(f"Blocked {url}: {exc}")
+            except Exception as exc:
+                warnings.append(f"Failed to fetch {url}: {type(exc).__name__}.")
+    else:
+        async with httpx.AsyncClient(timeout=8.0, follow_redirects=False) as client:
+            for url in selected_urls:
+                try:
+                    response = await _fetch_public_url(client, url)
+                    if response.status_code >= 400:
+                        warnings.append(f"Skipped {url}: HTTP {response.status_code}.")
+                        continue
+                    html_text = response.text
+                    metadata = extract_meta(html_text)
+                    title = extract_title(html_text) or f"{normalized_domain} page"
+                    description = (
+                        metadata.get("description")
+                        or metadata.get("og:description")
+                        or metadata.get("twitter:description")
+                    )
+                    evidence = description or "Fetched page successfully."
+                    sources.append(SourceEvidence(url=str(response.url), title=title, evidence=evidence))
+                    pages.append(
+                        PageDocument(
+                            url=str(response.url),
+                            title=title,
+                            html=html_text,
+                            text=extract_text(html_text),
+                            metadata=metadata,
+                        )
+                    )
+                except UnsafeUrlError as exc:
+                    warnings.append(f"Blocked {url}: {exc}")
+                except Exception as exc:
+                    warnings.append(f"Failed to fetch {url}: {type(exc).__name__}.")
 
-    if not sources:
+    if not pages:
         payload = CompanyPayload(
             name=normalized_domain.split(".")[0].replace("-", " ").title(),
             domain=normalized_domain,
@@ -82,25 +127,66 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
         await set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=3600)
         return result
 
-    summary = " ".join(combined_text).strip()
-    summary = summary[:600] if summary else None
+    extractor_results = await run_extractors(pages, data.pipeline)
+    facts = merge_facts(extractor_results)
+    warnings.extend(facts.warnings)
 
     payload = CompanyPayload(
-        name=normalized_domain.split(".")[0].replace("-", " ").title(),
+        name=facts.name or normalized_domain.split(".")[0].replace("-", " ").title(),
         domain=normalized_domain,
-        description=summary or "Profile extracted from public company pages.",
-        careers_url=f"{homepage}/careers",
+        description=facts.description or "Profile extracted from public company pages.",
+        industry=facts.industry,
+        products=facts.products,
+        hq=facts.hq,
+        size=facts.size,
+        careers_url=facts.careers_url or f"{homepage}/careers",
+        linkedin_url=facts.linkedin_url,
     )
+    if facts.evidence:
+        sources.extend(
+            SourceEvidence(url=pages[0].url, title="Extractor evidence", evidence=item)
+            for item in facts.evidence[:3]
+        )
 
     result = CompanyProfileOutput(
         company=payload,
-        confidence=0.35 if len(sources) == 1 else 0.55,
+        confidence=max(facts.confidence, 0.35 if len(pages) == 1 else 0.55),
         sources=sources,
-        warnings=warnings,
+        warnings=list(dict.fromkeys(warnings)),
     )
     ttl_seconds = max(3600, data.freshness_hours * 3600)
     await set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=ttl_seconds)
     return result
+
+
+class UnsafeUrlError(ValueError):
+    pass
+
+
+async def _fetch_public_url(client: httpx.AsyncClient, url: str) -> httpx.Response:
+    current_url = _validate_public_url(url)
+    for _ in range(MAX_REDIRECTS + 1):
+        response = await client.get(current_url)
+        final_url = _validate_public_url(str(response.url))
+        if response.is_redirect:
+            location = response.headers.get("location")
+            if not location:
+                raise UnsafeUrlError("redirect response has no Location header")
+            current_url = _validate_public_url(urljoin(final_url, location))
+            continue
+        return response
+    raise UnsafeUrlError(f"too many redirects; limit is {MAX_REDIRECTS}")
+
+
+def _validate_public_url(url: str) -> str:
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise UnsafeUrlError("only https URLs are allowed")
+    if not parsed.hostname:
+        raise UnsafeUrlError("URL is missing a hostname")
+    if not _is_safe_public_domain(parsed.hostname):
+        raise UnsafeUrlError("target host is localhost, private, reserved, or unresolved")
+    return parsed.geturl()
 
 
 def _is_safe_public_domain(domain: str) -> bool:
@@ -144,20 +230,8 @@ def _is_blocked_ip(ip) -> bool:
 
 
 def _extract_title(html: str) -> str | None:
-    match = re.search(r"<title[^>]*>(.*?)</title>", html, flags=re.IGNORECASE | re.DOTALL)
-    if not match:
-        return None
-    value = re.sub(r"\s+", " ", unescape(match.group(1))).strip()
-    return value or None
+    return extract_title(html)
 
 
 def _extract_meta_description(html: str) -> str | None:
-    match = re.search(
-        r'<meta[^>]+name=["\']description["\'][^>]+content=["\'](.*?)["\']',
-        html,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    if not match:
-        return None
-    value = re.sub(r"\s+", " ", unescape(match.group(1))).strip()
-    return value or None
+    return extract_meta(html).get("description")
