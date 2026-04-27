@@ -4,6 +4,7 @@ from company_mcp.mcp.schemas import CompanyProfileInput
 from company_mcp.providers.company_profile import (
     _extract_meta_description,
     _extract_title,
+    _fetch_public_url,
     _is_safe_public_domain,
     _normalize_domain,
     build_company_profile,
@@ -86,6 +87,8 @@ async def test_company_profile_cache_miss_fetches_and_caches(monkeypatch: pytest
 
     class FakeResponse:
         status_code = 200
+        is_redirect = False
+        headers = {}
         text = (
             "<html><head><title>Example</title>"
             '<meta name="description" content="About us"></head></html>'
@@ -108,7 +111,31 @@ async def test_company_profile_cache_miss_fetches_and_caches(monkeypatch: pytest
     monkeypatch.setattr("company_mcp.providers.company_profile._is_safe_public_domain", lambda _d: True)
     monkeypatch.setattr("company_mcp.providers.company_profile.httpx.AsyncClient", lambda **_: FakeClient())
 
-    result = await build_company_profile(CompanyProfileInput(domain="example.com", max_pages=2))
-    assert len(result.sources) == 2
+    result = await build_company_profile(
+        CompanyProfileInput(domain="example.com", max_pages=2, pipeline="metadata")
+    )
+    assert len(result.sources) >= 2
     assert calls["get"] == 2
     assert calls["set"] == 1
+
+
+@pytest.mark.anyio
+async def test_fetch_public_url_blocks_private_redirect(monkeypatch: pytest.MonkeyPatch) -> None:
+    class RedirectResponse:
+        status_code = 302
+        is_redirect = True
+        headers = {"location": "https://127.0.0.1/admin"}
+        text = ""
+        url = "https://example.com"
+
+    class FakeClient:
+        async def get(self, *_args, **_kwargs):
+            return RedirectResponse()
+
+    monkeypatch.setattr(
+        "company_mcp.providers.company_profile._is_safe_public_domain",
+        lambda domain: domain == "example.com",
+    )
+
+    with pytest.raises(ValueError, match="target host"):
+        await _fetch_public_url(FakeClient(), "https://example.com")

@@ -28,6 +28,8 @@ The FastAPI service exposes MCP over HTTP at `http://localhost:8080/mcp`.
 - `make ps` show service status
 - `make clean` remove containers + volumes
 - `make test` run `pytest`
+- `make docker-test` run live tests against a running Docker stack
+- `make smoke-providers` validate Tavily/OpenRouter API connectivity
 
 ## Goal
 
@@ -93,9 +95,11 @@ The server should support multiple extractor pipelines behind a common interface
 - `readability`: article/body extraction for pages with dense text.
 - `dom_rules`: custom selectors and heuristics for company homepages, `/about`, `/careers`, `/team`, and press pages.
 - `llm_extract`: Haiku-class OpenRouter extraction over cleaned page text.
-- `browser_snapshot`: Playwright-rendered page extraction for JavaScript-heavy pages.
+- `browser_snapshot`: Playwright-rendered page extraction for JavaScript-heavy pages. Browser requests are routed through the same public-URL validator used by the HTTP fetcher.
 
 Each tool call should be able to select a pipeline explicitly, or use `auto`, where the server tries cheap deterministic extraction first and escalates only when confidence is low.
+
+Current `company_profile` supports `pipeline`: `auto`, `metadata`, `dom_rules`, `llm_extract`, and `browser_snapshot`.
 
 ## Tool Contracts
 
@@ -107,7 +111,8 @@ Input:
 {
   "domain": "example.com",
   "max_pages": 8,
-  "freshness_hours": 168
+  "freshness_hours": 168,
+  "pipeline": "auto"
 }
 ```
 
@@ -141,9 +146,10 @@ Output:
 
 Implementation:
 
-- Resolve homepage, `/about`, `/careers`, `/team`, sitemap, Open Graph metadata, and schema.org JSON-LD.
-- Extract with the cheap model profile, then normalize deterministically.
-- Cache by canonical domain and extraction version.
+- Resolve homepage, `/about`, `/company`, `/careers`, `/jobs`, `/team`, `/press`, and `/news`.
+- Block localhost/private/reserved targets before fetch, disable automatic redirects, and manually validate redirect targets.
+- Extract with swappable pipelines, then merge facts deterministically.
+- Cache by canonical domain, selected pipeline, and extraction version.
 
 ### `recent_news(company, days)`
 
@@ -219,14 +225,15 @@ Implementation:
 - Do not scrape authenticated LinkedIn pages or bypass access controls.
 - Use search snippets and public pages only, or an approved enrichment provider.
 - Return ranked candidates with confidence, not a single asserted identity.
+- The current implementation uses Tavily search snippets against public `linkedin.com/in` results.
 
 ## Internal Modules
 
 - `mcp/`: tool registration, JSON schemas, transport setup.
 - `providers/`: Tavily search/news, homepage fetch, LinkedIn lookup, optional enrichment APIs.
 - `extractors/`: swappable extraction pipelines, HTML readability, metadata parsing, LLM extraction prompts, schema validation.
-- `models/`: OpenRouter client with named profiles: `cheap_extract` and `quality_synthesis`.
-- `cache/`: Redis keys, TTLs, stale-while-revalidate behavior.
+- `models/`: raw-`httpx` OpenRouter client with named profiles: `cheap_extract` and `quality_synthesis`.
+- `cache/`: Valkey keys, TTLs, retry-on-transient-failure behavior.
 - `ranking/`: source reliability, recency, domain/name matching, confidence scoring.
 - `observability/`: request IDs, structured logs, timing, provider costs, cache hit rate.
 
@@ -272,6 +279,8 @@ Test against the assignment criterion probabilistically:
   - cache hit rate
   - cost per invitation
 - Target: at least 80% of cases produce useful research inputs within 10 minutes.
+
+The repo includes a small `evaluation` module and unit test for the 80% replay target. The next step is filling it with real or anonymized invitation fixtures.
 
 ## Security And Compliance
 

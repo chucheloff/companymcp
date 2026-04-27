@@ -1,1 +1,1 @@
-"""Cache helpers for Valkey/Redis."""
+"""Cache helpers for Valkey."""
