@@ -1,7 +1,7 @@
 import pytest
 
-from company_mcp.mcp.schemas import LinkedInLookupInput
-from company_mcp.providers.linkedin_lookup import lookup_linkedin
+from company_mcp.mcp.schemas import LinkedInLookupInput, LinkedInLookupOutput, LinkedInMatch
+from company_mcp.providers.linkedin_lookup import _score_match, _ttl_seconds, lookup_linkedin
 
 
 @pytest.mark.anyio
@@ -31,6 +31,7 @@ async def test_linkedin_lookup_ranks_public_profile(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr("company_mcp.providers.linkedin_lookup.get_json", fake_get_json)
     monkeypatch.setattr("company_mcp.providers.linkedin_lookup.set_json", fake_set_json)
     monkeypatch.setattr("company_mcp.providers.linkedin_lookup.settings.tavily_api_key", "test-key")
+    monkeypatch.setattr("company_mcp.providers.linkedin_lookup.settings.openrouter_api_key", None)
     monkeypatch.setattr("company_mcp.providers.linkedin_lookup.tavily_search", fake_tavily_search)
 
     result = await lookup_linkedin(
@@ -40,3 +41,61 @@ async def test_linkedin_lookup_ranks_public_profile(monkeypatch: pytest.MonkeyPa
     assert len(result.matches) == 1
     assert result.matches[0].company_match is True
     assert result.matches[0].confidence >= 0.8
+
+
+def test_linkedin_lookup_caps_company_only_match() -> None:
+    confidence, evidence, company_match = _score_match(
+        LinkedInLookupInput(name="Sam Altman", company="OpenAI", title_hint="CEO"),
+        title="Larry James Erwin - OpenAI",
+        content="Larry works at OpenAI.",
+        url="https://www.linkedin.com/in/iamlarryjames",
+        normalized={},
+    )
+
+    assert company_match is True
+    assert confidence <= 0.4
+    assert "requested name not confirmed" in evidence
+
+
+def test_linkedin_lookup_penalizes_normalized_mismatch() -> None:
+    confidence, evidence, company_match = _score_match(
+        LinkedInLookupInput(name="Sam Altman", company="OpenAI", title_hint="CEO"),
+        title="Sam Altman",
+        content="Sam Altman profile",
+        url="https://www.linkedin.com/in/sam-altman-4384094",
+        normalized={
+            "name": "Sam Altman",
+            "title": "President",
+            "current_company": "Altman Technologies, Inc.",
+            "headline": "President at Altman Technologies, Inc.",
+        },
+    )
+
+    assert company_match is False
+    assert confidence < 0.6
+    assert "normalized company did not match requested company" in evidence
+    assert "normalized title did not match title hint" in evidence
+
+
+def test_linkedin_lookup_uses_short_ttl_for_weak_results() -> None:
+    assert _ttl_seconds(LinkedInLookupOutput(matches=[], query_used="q")) == 3600
+    assert (
+        _ttl_seconds(
+            LinkedInLookupOutput(
+                matches=[LinkedInMatch(name="A", url="https://www.linkedin.com/in/a", confidence=0.4)],
+                query_used="q",
+                confidence=0.4,
+            )
+        )
+        == 3600
+    )
+    assert (
+        _ttl_seconds(
+            LinkedInLookupOutput(
+                matches=[LinkedInMatch(name="A", url="https://www.linkedin.com/in/a", confidence=0.6)],
+                query_used="q",
+                confidence=0.6,
+            )
+        )
+        == 24 * 3600
+    )

@@ -227,6 +227,48 @@ Implementation:
 - Return ranked candidates with confidence, not a single asserted identity.
 - The current implementation uses Tavily search snippets against public `linkedin.com/in` results.
 
+### `linkedin_company_lookup(company, domain?)`
+
+Input:
+
+```json
+{
+  "company": "Example",
+  "domain": "example.com",
+  "limit": 3
+}
+```
+
+Output:
+
+```json
+{
+  "matches": [
+    {
+      "name": "Example",
+      "linkedin_url": "https://www.linkedin.com/company/example",
+      "description": "...",
+      "website": "example.com",
+      "industry": "...",
+      "size": "...",
+      "confidence": 0.82,
+      "evidence": ["company tokens matched search result", "public LinkedIn company URL"]
+    }
+  ],
+  "warnings": ["LinkedIn company data is search-result-derived; details may be incomplete."]
+}
+```
+
+Implementation:
+
+- Use search snippets against public `linkedin.com/company` results only.
+- Use the light OpenRouter model, when configured, to normalize snippet fields without browsing LinkedIn.
+- Cache results under both the provider key and the company aggregate cache.
+
+### `cached_company_results(company)`
+
+Returns the company-scoped aggregate cache stored at `company_research:v1:<company-key>`. Each provider entry includes `cached_at`, `expires_at`, `ttl_seconds`, the provider request, and the structured provider result.
+
 ## Internal Modules
 
 - `mcp/`: tool registration, JSON schemas, transport setup.
@@ -241,10 +283,19 @@ Implementation:
 
 Even though the OpenClaw agent will generate the final user-facing Slack message, this server should own extraction quality:
 
-- `cheap_extract`: Haiku-class model via OpenRouter for page extraction, article summarization, and snippet normalization.
-- `quality_synthesis`: Opus-class model via OpenRouter for optional `interview_brief` or deep company synthesis if we expose that later.
+- `cheap_extract`: Haiku-class model via OpenRouter for page extraction, LinkedIn snippet normalization, article/news summarization, and snippet normalization. Runtime tasks `company_profile_extract`, `linkedin_lookup`, and `news_summary` use `OPENROUTER_EXTRACTION_MODEL`.
+- `quality_synthesis`: Opus-class model via OpenRouter for optional `interview_brief`, final briefs, or deep company synthesis if we expose that later. Runtime tasks `final_brief` and `quality_synthesis` use `OPENROUTER_QUALITY_MODEL`.
 
 Model IDs should be environment variables, not hard-coded, because OpenRouter model names and preferred versions change.
+
+Configure model routing with:
+
+```env
+OPENROUTER_EXTRACTION_MODEL=anthropic/claude-3.5-haiku
+OPENROUTER_QUALITY_MODEL=anthropic/claude-3-opus
+```
+
+In code, use `model_for_task(task)` or pass a `task` to `OpenRouterClient.chat(...)` / `extract_json(...)` instead of hard-coding model IDs. Pass an explicit `model=` only for a one-off override.
 
 ## Caching Policy
 
@@ -253,6 +304,7 @@ Model IDs should be environment variables, not hard-coded, because OpenRouter mo
 - Extracted article summaries: 30 days by URL + extraction prompt version.
 - LinkedIn search results: 7 days, with explicit warning that they may be stale.
 - Negative lookups: short TTL, around 1 hour.
+- Company aggregate cache: `company_research:v1:<company-key>` stores provider results by company with per-provider `expires_at` metadata and a key TTL matching the longest live provider result.
 
 ## Failure Model
 

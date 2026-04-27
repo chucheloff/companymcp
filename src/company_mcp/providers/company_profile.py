@@ -4,7 +4,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
-from company_mcp.cache.store import get_json, set_json
+from company_mcp.cache.company_table import upsert_company_provider_result
+from company_mcp.cache.store import get_json, get_ttl, set_json
 from company_mcp.extractors.base import PageDocument
 from company_mcp.extractors.browser_snapshot import snapshot_url
 from company_mcp.extractors.html_utils import extract_meta, extract_text, extract_title
@@ -41,10 +42,20 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
             warnings=["Domain is blocked by SSRF policy (localhost/private IP/reserved target)."],
         )
 
-    cache_key = f"company_profile:{EXTRACTOR_VERSION}:{normalized_domain}:{data.pipeline}"
+    cache_key = _company_profile_cache_key(data, normalized_domain)
     cached = await get_json(cache_key)
     if cached:
-        return CompanyProfileOutput.model_validate(cached)
+        output = CompanyProfileOutput.model_validate(cached)
+        ttl_seconds = await get_ttl(cache_key) or max(3600, data.freshness_hours * 3600)
+        for company_key in _company_table_keys(output, normalized_domain):
+            await upsert_company_provider_result(
+                company=company_key,
+                provider="company_profile",
+                result=output.model_dump(mode="json"),
+                ttl_seconds=ttl_seconds,
+                request=data.model_dump(mode="json"),
+            )
+        return output
 
     homepage = f"https://{normalized_domain}"
     candidates = [
@@ -67,6 +78,9 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
         for url in selected_urls:
             try:
                 page = await snapshot_url(url, validate_url=_validate_public_url)
+                if _is_probably_challenge_page(page):
+                    warnings.append(f"Skipped {page.url}: browser challenge page detected.")
+                    continue
                 description = (
                     page.metadata.get("description")
                     or page.metadata.get("og:description")
@@ -124,7 +138,16 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
             sources=[],
             warnings=warnings + ["No evidence found; returning empty profile scaffold."],
         )
-        await set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=3600)
+        ttl_seconds = 600
+        await set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=ttl_seconds)
+        for company_key in _company_table_keys(result, normalized_domain):
+            await upsert_company_provider_result(
+                company=company_key,
+                provider="company_profile",
+                result=result.model_dump(mode="json"),
+                ttl_seconds=ttl_seconds,
+                request=data.model_dump(mode="json"),
+            )
         return result
 
     extractor_results = await run_extractors(pages, data.pipeline)
@@ -156,7 +179,30 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
     )
     ttl_seconds = max(3600, data.freshness_hours * 3600)
     await set_json(cache_key, result.model_dump(mode="json"), ttl_seconds=ttl_seconds)
+    for company_key in _company_table_keys(result, normalized_domain):
+        await upsert_company_provider_result(
+            company=company_key,
+            provider="company_profile",
+            result=result.model_dump(mode="json"),
+            ttl_seconds=ttl_seconds,
+            request=data.model_dump(mode="json"),
+        )
     return result
+
+
+def _company_profile_cache_key(data: CompanyProfileInput, normalized_domain: str) -> str:
+    return (
+        f"company_profile:{EXTRACTOR_VERSION}:{normalized_domain}:"
+        f"{data.pipeline}:pages={data.max_pages}"
+    )
+
+
+def _company_table_keys(result: CompanyProfileOutput, normalized_domain: str) -> list[str]:
+    keys = [normalized_domain]
+    name = result.company.name.strip()
+    if name and name.lower() != normalized_domain.lower():
+        keys.append(name)
+    return keys
 
 
 class UnsafeUrlError(ValueError):
@@ -226,6 +272,18 @@ def _is_blocked_ip(ip) -> bool:
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
+    )
+
+
+def _is_probably_challenge_page(page: PageDocument) -> bool:
+    title = page.title.strip().lower()
+    text = " ".join(page.text.lower().split())
+    challenge_titles = {
+        "just a moment...",
+        "attention required!",
+    }
+    return title in challenge_titles or (
+        "verification successful" in text and "waiting for" in text and "respond" in text
     )
 
 

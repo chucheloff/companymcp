@@ -1,7 +1,14 @@
 from fastmcp import FastMCP
 
-from company_mcp.mcp.schemas import CompanyProfileInput, LinkedInLookupInput, RecentNewsInput
+from company_mcp.cache.company_table import get_company_provider_results
+from company_mcp.mcp.schemas import (
+    CompanyProfileInput,
+    LinkedInCompanyLookupInput,
+    LinkedInLookupInput,
+    RecentNewsInput,
+)
 from company_mcp.providers.company_profile import build_company_profile
+from company_mcp.providers.linkedin_company_lookup import lookup_linkedin_company
 from company_mcp.providers.linkedin_lookup import lookup_linkedin
 from company_mcp.providers.tavily_news import fetch_recent_news
 
@@ -50,3 +57,22 @@ async def linkedin_lookup(
     )
     result = await lookup_linkedin(payload)
     return result.model_dump(mode="json")
+
+
+@mcp.tool()
+async def linkedin_company_lookup(
+    company: str,
+    domain: str | None = None,
+    limit: int = 3,
+) -> dict:
+    """Return ranked public LinkedIn company candidates from search snippets."""
+    payload = LinkedInCompanyLookupInput(company=company, domain=domain, limit=limit)
+    result = await lookup_linkedin_company(payload)
+    return result.model_dump(mode="json")
+
+
+@mcp.tool()
+async def cached_company_results(company: str) -> dict:
+    """Return company-scoped cached provider results."""
+    result = await get_company_provider_results(company)
+    return result or {"company_key": company, "providers": {}, "warnings": ["No cached company results found."]}

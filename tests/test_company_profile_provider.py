@@ -2,13 +2,16 @@ import pytest
 
 from company_mcp.mcp.schemas import CompanyProfileInput
 from company_mcp.providers.company_profile import (
+    _company_profile_cache_key,
     _extract_meta_description,
     _extract_title,
     _fetch_public_url,
+    _is_probably_challenge_page,
     _is_safe_public_domain,
     _normalize_domain,
     build_company_profile,
 )
+from company_mcp.extractors.base import PageDocument
 
 
 def test_normalize_domain_from_url() -> None:
@@ -31,6 +34,30 @@ def test_extract_title_and_description() -> None:
 def test_ssrf_domain_policy_blocks_localhost() -> None:
     assert _is_safe_public_domain("localhost") is False
     assert _is_safe_public_domain("127.0.0.1") is False
+
+
+def test_company_profile_cache_key_includes_page_limit() -> None:
+    first = _company_profile_cache_key(
+        CompanyProfileInput(domain="example.com", max_pages=2),
+        "example.com",
+    )
+    second = _company_profile_cache_key(
+        CompanyProfileInput(domain="example.com", max_pages=8),
+        "example.com",
+    )
+
+    assert first != second
+
+
+def test_challenge_page_detection() -> None:
+    page = PageDocument(
+        url="https://openai.com",
+        title="Just a moment...",
+        html="",
+        text="Verification successful. Waiting for openai.com to respond",
+    )
+
+    assert _is_probably_challenge_page(page) is True
 
 
 @pytest.mark.anyio

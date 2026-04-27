@@ -78,6 +78,8 @@ class LinkedInLookupInput(BaseModel):
 class LinkedInMatch(BaseModel):
     name: str
     headline: str | None = None
+    title: str | None = None
+    current_company: str | None = None
     url: str
     company_match: bool = False
     confidence: float = Field(default=0.0, ge=0, le=1)
@@ -86,6 +88,30 @@ class LinkedInMatch(BaseModel):
 
 class LinkedInLookupOutput(BaseModel):
     matches: list[LinkedInMatch] = Field(default_factory=list)
+    query_used: str
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class LinkedInCompanyLookupInput(BaseModel):
+    company: str = Field(min_length=2, max_length=120)
+    domain: str | None = Field(default=None, max_length=255)
+    limit: int = Field(default=3, ge=1, le=10)
+
+
+class LinkedInCompanyMatch(BaseModel):
+    name: str
+    linkedin_url: str
+    description: str | None = None
+    website: str | None = None
+    industry: str | None = None
+    size: str | None = None
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    evidence: list[str] = Field(default_factory=list)
+
+
+class LinkedInCompanyLookupOutput(BaseModel):
+    matches: list[LinkedInCompanyMatch] = Field(default_factory=list)
     query_used: str
     confidence: float = Field(default=0.0, ge=0, le=1)
     warnings: list[str] = Field(default_factory=list)

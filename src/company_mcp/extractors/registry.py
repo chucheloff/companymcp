@@ -4,7 +4,7 @@ from company_mcp.extractors.llm_extract import get_pipeline as llm_extract_pipel
 from company_mcp.extractors.metadata import get_pipeline as metadata_pipeline
 from company_mcp.mcp.schemas import ExtractionPipelineName
 
-EXTRACTOR_VERSION = "v1"
+EXTRACTOR_VERSION = "v2"
 
 
 def selected_pipelines(name: ExtractionPipelineName) -> list[ExtractorPipeline]:

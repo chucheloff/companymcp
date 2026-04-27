@@ -56,3 +56,17 @@ async def set_json(key: str, value: dict[str, Any], ttl_seconds: int) -> bool:
         _valkey_client = None
         _last_failure_at = time.monotonic()
         return False
+
+
+async def get_ttl(key: str) -> int | None:
+    global _valkey_client, _last_failure_at
+    client = await _get_client()
+    if client is None:
+        return None
+    try:
+        ttl = await client.ttl(key)
+    except Exception:
+        _valkey_client = None
+        _last_failure_at = time.monotonic()
+        return None
+    return ttl if ttl and ttl > 0 else None
