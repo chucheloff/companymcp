@@ -24,8 +24,8 @@ services:
       BROWSER_TIMEOUT_MS: ${BROWSER_TIMEOUT_MS:-12000}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-      OPENROUTER_EXTRACTION_MODEL: ${OPENROUTER_EXTRACTION_MODEL:-anthropic/claude-3.5-haiku}
-      OPENROUTER_QUALITY_MODEL: ${OPENROUTER_QUALITY_MODEL:-anthropic/claude-3-opus}
+      OPENROUTER_EXTRACTION_MODEL: ${OPENROUTER_EXTRACTION_MODEL:-openai/gpt-5-mini}
+      OPENROUTER_QUALITY_MODEL: ${OPENROUTER_QUALITY_MODEL:-openai/gpt-5.1}
     command: ["uv", "run", "python", "-m", "company_mcp.main"]
     depends_on:
       valkey:

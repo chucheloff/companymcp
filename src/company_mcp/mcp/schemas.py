@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -113,5 +113,49 @@ class LinkedInCompanyMatch(BaseModel):
 class LinkedInCompanyLookupOutput(BaseModel):
     matches: list[LinkedInCompanyMatch] = Field(default_factory=list)
     query_used: str
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class WikipediaCompanyInput(BaseModel):
+    company: str = Field(min_length=2, max_length=120)
+    domain: str | None = Field(default=None, max_length=255)
+
+
+class WikipediaCompanyOutput(BaseModel):
+    title: str | None = None
+    url: str | None = None
+    summary: str | None = None
+    description: str | None = None
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class CompanyOverviewInput(BaseModel):
+    company: str = Field(min_length=2, max_length=120)
+    domain: str | None = Field(default=None, max_length=255)
+    days: int = Field(default=30, ge=1, le=90)
+    news_limit: int = Field(default=5, ge=1, le=12)
+    max_pages: int = Field(default=8, ge=1, le=20)
+    include_wikipedia: bool = True
+
+
+class CompanyOverviewBrief(BaseModel):
+    summary: str
+    what_they_do: str | None = None
+    market_position: str | None = None
+    products: list[str] = Field(default_factory=list)
+    recent_developments: list[str] = Field(default_factory=list)
+    interview_angles: list[str] = Field(default_factory=list)
+    uncertainties: list[str] = Field(default_factory=list)
+
+
+class CompanyOverviewOutput(BaseModel):
+    task: str = "company_overview"
+    synthesis_task: str = "final_brief"
+    company: CompanyPayload
+    overview: CompanyOverviewBrief
+    providers: dict[str, Any] = Field(default_factory=dict)
+    sources: list[SourceEvidence] = Field(default_factory=list)
     confidence: float = Field(default=0.0, ge=0, le=1)
     warnings: list[str] = Field(default_factory=list)
