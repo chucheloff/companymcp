@@ -17,8 +17,8 @@ class Settings(BaseSettings):
 
     tavily_api_key: str | None = Field(default=None)
     openrouter_api_key: str | None = Field(default=None)
-    openrouter_extraction_model: str = "anthropic/claude-3.5-haiku"
-    openrouter_quality_model: str = "anthropic/claude-3-opus"
+    openrouter_extraction_model: str = "openai/gpt-5-mini"
+    openrouter_quality_model: str = "openai/gpt-5.1"
     valkey_url: str = "redis://valkey:6379/0"
     valkey_retry_seconds: float = 5.0
     browser_timeout_ms: int = 12_000

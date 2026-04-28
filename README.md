@@ -269,6 +269,22 @@ Implementation:
 
 Returns the company-scoped aggregate cache stored at `company_research:v1:<company-key>`. Each provider entry includes `cached_at`, `expires_at`, `ttl_seconds`, the provider request, and the structured provider result.
 
+### `wikipedia_company(company, domain?)`
+
+Looks for a likely English Wikipedia page for the company and returns a short summary, canonical page URL, confidence, and warnings. This uses public Wikipedia APIs and does not require a separate API key.
+
+### `company_overview(company, domain?, days=30, news_limit=5, max_pages=8, include_wikipedia=true)`
+
+Runs the company-level providers and returns a synthesized company overview:
+
+- `company_profile` from the company domain, when a domain is supplied.
+- `recent_news` from Tavily, with light-model summarization when OpenRouter is configured.
+- `linkedin_company_lookup` from public LinkedIn company search snippets.
+- `wikipedia_company` for stable background facts, unless disabled.
+- `cached_company_results` so the output reflects provider results already stored for the company.
+
+The final `overview` field is synthesized through OpenRouter `synthesize_json(...)`, which routes to the `final_brief` task and therefore uses `OPENROUTER_QUALITY_MODEL`. If OpenRouter is unavailable, the tool returns a deterministic fallback overview from the collected provider data and includes a warning.
+
 ## Internal Modules
 
 - `mcp/`: tool registration, JSON schemas, transport setup.
@@ -283,19 +299,21 @@ Returns the company-scoped aggregate cache stored at `company_research:v1:<compa
 
 Even though the OpenClaw agent will generate the final user-facing Slack message, this server should own extraction quality:
 
-- `cheap_extract`: Haiku-class model via OpenRouter for page extraction, LinkedIn snippet normalization, article/news summarization, and snippet normalization. Runtime tasks `company_profile_extract`, `linkedin_lookup`, and `news_summary` use `OPENROUTER_EXTRACTION_MODEL`.
-- `quality_synthesis`: Opus-class model via OpenRouter for optional `interview_brief`, final briefs, or deep company synthesis if we expose that later. Runtime tasks `final_brief` and `quality_synthesis` use `OPENROUTER_QUALITY_MODEL`.
+- `cheap_extract`: compact OpenAI model via OpenRouter for page extraction, LinkedIn snippet normalization, article/news summarization, and snippet normalization. Runtime tasks `company_profile_extract`, `linkedin_lookup`, and `news_summary` use `OPENROUTER_EXTRACTION_MODEL`.
+- `quality_synthesis`: larger OpenAI model via OpenRouter for `company_overview`, optional `interview_brief`, final briefs, or deep company synthesis. Runtime tasks `final_brief` and `quality_synthesis` use `OPENROUTER_QUALITY_MODEL`.
 
 Model IDs should be environment variables, not hard-coded, because OpenRouter model names and preferred versions change.
 
 Configure model routing with:
 
 ```env
-OPENROUTER_EXTRACTION_MODEL=anthropic/claude-3.5-haiku
-OPENROUTER_QUALITY_MODEL=anthropic/claude-3-opus
+OPENROUTER_EXTRACTION_MODEL=openai/gpt-5-mini
+OPENROUTER_QUALITY_MODEL=openai/gpt-5.1
 ```
 
 In code, use `model_for_task(task)` or pass a `task` to `OpenRouterClient.chat(...)` / `extract_json(...)` instead of hard-coding model IDs. Pass an explicit `model=` only for a one-off override.
+
+Requests also set task-specific `max_tokens` caps. This matters with OpenRouter because leaving `max_tokens` unset can reserve the model's full output limit and fail on accounts that have enough balance for the actual answer but not for the maximum possible completion.
 
 ## Caching Policy
 
@@ -303,6 +321,8 @@ In code, use `model_for_task(task)` or pass a `task` to `OpenRouterClient.chat(.
 - News search result pages: 1-6 hours depending on `days`.
 - Extracted article summaries: 30 days by URL + extraction prompt version.
 - LinkedIn search results: 7 days, with explicit warning that they may be stale.
+- Wikipedia company summaries: 30 days for confident matches, 24 hours for misses or ambiguous matches.
+- Company overview synthesis: 24 hours, because it combines slower-changing profile data with fresher news.
 - Negative lookups: short TTL, around 1 hour.
 - Company aggregate cache: `company_research:v1:<company-key>` stores provider results by company with per-provider `expires_at` metadata and a key TTL matching the longest live provider result.
 
