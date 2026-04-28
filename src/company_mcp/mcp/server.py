@@ -1,6 +1,6 @@
 from fastmcp import FastMCP
 
-from company_mcp.cache.company_table import get_company_provider_results
+from company_mcp.cache.company_table import get_company_provider_results, purge_company_provider_results
 from company_mcp.mcp.schemas import (
     CompanyOverviewInput,
     CompanyProfileInput,
@@ -91,6 +91,7 @@ async def company_overview(
     news_limit: int = 5,
     max_pages: int = 8,
     include_wikipedia: bool = True,
+    force_refresh: bool = False,
 ) -> dict:
     """Collect company providers and synthesize a final company overview."""
     payload = CompanyOverviewInput(
@@ -100,6 +101,7 @@ async def company_overview(
         news_limit=news_limit,
         max_pages=max_pages,
         include_wikipedia=include_wikipedia,
+        force_refresh=force_refresh,
     )
     result = await build_company_overview(payload)
     return result.model_dump(mode="json")
@@ -110,3 +112,9 @@ async def cached_company_results(company: str) -> dict:
     """Return company-scoped cached provider results."""
     result = await get_company_provider_results(company)
     return result or {"company_key": company, "providers": {}, "warnings": ["No cached company results found."]}
+
+
+@mcp.tool()
+async def purge_company_cache(company: str, domain: str | None = None) -> dict:
+    """Delete company-scoped aggregate cached provider results."""
+    return await purge_company_provider_results(company, domain)

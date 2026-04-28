@@ -17,9 +17,34 @@ ModelTask = Literal[
     "final_brief",
     "quality_synthesis",
 ]
+ModelTier = Literal["free", "paid"]
 
 
 def model_for_task(task: ModelTask) -> str:
+    tier = model_tier()
+    if task in {"final_brief", "quality_synthesis"}:
+        return (
+            settings.openrouter_free_quality_model
+            if tier == "free"
+            else settings.openrouter_quality_model
+        )
+    return (
+        settings.openrouter_free_extraction_model
+        if tier == "free"
+        else settings.openrouter_extraction_model
+    )
+
+
+def model_tier() -> ModelTier:
+    tier = settings.openrouter_model_tier.strip().lower()
+    if tier == "paid":
+        return "paid"
+    if tier != "free":
+        return "free"
+    return "free"
+
+
+def paid_model_for_task(task: ModelTask) -> str:
     if task in {"final_brief", "quality_synthesis"}:
         return settings.openrouter_quality_model
     return settings.openrouter_extraction_model

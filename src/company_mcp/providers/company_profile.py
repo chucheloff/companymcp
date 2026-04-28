@@ -43,7 +43,7 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
         )
 
     cache_key = _company_profile_cache_key(data, normalized_domain)
-    cached = await get_json(cache_key)
+    cached = None if data.force_refresh else await get_json(cache_key)
     if cached:
         output = CompanyProfileOutput.model_validate(cached)
         ttl_seconds = await get_ttl(cache_key) or max(3600, data.freshness_hours * 3600)

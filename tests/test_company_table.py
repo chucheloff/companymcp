@@ -42,3 +42,30 @@ async def test_upsert_company_provider_result_prunes_expired(monkeypatch: pytest
     assert writes["key"] == "company_research:v1:openai"
     assert "old" not in writes["value"]["providers"]
     assert writes["value"]["providers"]["recent_news"]["result"] == {"items": []}
+
+
+@pytest.mark.anyio
+async def test_purge_company_provider_results_deletes_company_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {}
+
+    async def fake_delete_keys(*keys: str):
+        calls["keys"] = keys
+        return len(keys)
+
+    async def fake_delete_pattern(pattern: str):
+        calls.setdefault("patterns", []).append(pattern)
+        return [pattern.replace("*", "matched")]
+
+    monkeypatch.setattr(company_table, "delete_keys", fake_delete_keys)
+    monkeypatch.setattr(company_table, "delete_pattern", fake_delete_pattern)
+
+    result = await company_table.purge_company_provider_results("OpenAI", "openai.com")
+
+    assert calls["keys"] == ("company_research:v1:openai",)
+    assert "company_profile:*:openai.com:*" in calls["patterns"]
+    assert "recent_news:v2:*OpenAI*" in calls["patterns"]
+    assert result["company_key"] == "openai"
+    assert "company_research:v1:openai" in result["deleted_keys"]
+    assert result["deleted_count"] == len(result["deleted_keys"])

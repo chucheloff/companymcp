@@ -19,7 +19,7 @@ from company_mcp.providers.tavily_news import tavily_search
 async def lookup_linkedin_company(data: LinkedInCompanyLookupInput) -> LinkedInCompanyLookupOutput:
     query = _build_query(data)
     cache_key = _cache_key(data, query)
-    cached = await get_json(cache_key)
+    cached = None if data.force_refresh else await get_json(cache_key)
     if cached:
         output = LinkedInCompanyLookupOutput.model_validate(cached)
         await upsert_company_provider_result(

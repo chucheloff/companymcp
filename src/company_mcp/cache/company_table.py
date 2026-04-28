@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from company_mcp.cache.store import get_json, set_json
+from company_mcp.cache.store import delete_keys, delete_pattern, get_json, set_json
 
 COMPANY_TABLE_VERSION = "v1"
 
@@ -55,8 +55,47 @@ async def get_company_provider_results(company: str) -> dict[str, Any] | None:
     return await get_json(company_cache_key(company))
 
 
+async def purge_company_provider_results(company: str, domain: str | None = None) -> dict[str, Any]:
+    key = company_cache_key(company)
+    deleted_keys: list[str] = []
+    deleted = await delete_keys(key)
+    if deleted:
+        deleted_keys.append(key)
+
+    patterns = _provider_cache_patterns(company, domain)
+    for pattern in patterns:
+        deleted_keys.extend(await delete_pattern(pattern))
+
+    deleted_keys = sorted(set(deleted_keys))
+    return {
+        "company_key": _normalize_company_key(company),
+        "deleted_keys": deleted_keys,
+        "deleted_count": len(deleted_keys),
+    }
+
+
 def _normalize_company_key(company: str) -> str:
     return "-".join(company.strip().lower().replace("_", "-").split())
+
+
+def _provider_cache_patterns(company: str, domain: str | None) -> list[str]:
+    company_clean = company.strip()
+    company_lower = company_clean.lower()
+    patterns = [
+        f"recent_news:v2:*{company_clean}*",
+        f"wikipedia_company:*:{company_lower}:*",
+    ]
+    if domain:
+        domain_clean = domain.strip().lower()
+        patterns.extend(
+            [
+                f"company_research:{COMPANY_TABLE_VERSION}:{domain_clean}",
+                f"company_profile:*:{domain_clean}:*",
+                f"recent_news:v2:*{domain_clean}*",
+                f"wikipedia_company:*:*:{domain_clean}",
+            ]
+        )
+    return patterns
 
 
 def _parse_datetime(value: Any) -> datetime | None:

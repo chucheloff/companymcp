@@ -16,7 +16,7 @@ async def fetch_recent_news(data: RecentNewsInput) -> RecentNewsOutput:
         query = f"{query} {data.domain}"
     cache_key = f"recent_news:v2:{query}:{data.days}:{data.limit}"
 
-    cached = await get_json(cache_key)
+    cached = None if data.force_refresh else await get_json(cache_key)
     if cached:
         output = RecentNewsOutput.model_validate(cached)
         ttl_seconds = await get_ttl(cache_key) or _ttl_seconds(data)

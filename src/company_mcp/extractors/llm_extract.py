@@ -1,4 +1,7 @@
 import json
+import re
+
+from pydantic import ValidationError
 
 from company_mcp.extractors.base import ExtractedFacts, ExtractorPipeline, PageDocument
 from company_mcp.models.openrouter import OpenRouterClient, OpenRouterUnavailable
@@ -29,8 +32,34 @@ class LlmExtractPipeline:
 
         if isinstance(raw, str):
             raw = json.loads(raw)
-        return ExtractedFacts.model_validate(raw)
+        if isinstance(raw, list):
+            raw = next((item for item in raw if isinstance(item, dict)), {})
+        if isinstance(raw, dict):
+            raw = _coerce_extracted_facts(raw)
+        try:
+            return ExtractedFacts.model_validate(raw)
+        except ValidationError as exc:
+            return ExtractedFacts(
+                confidence=0.0,
+                warnings=[f"OpenRouter extraction returned invalid facts: {exc}"],
+            )
 
 
 def get_pipeline() -> ExtractorPipeline:
     return LlmExtractPipeline()
+
+
+def _coerce_extracted_facts(raw: dict) -> dict:
+    payload = dict(raw)
+    confidence = payload.get("confidence")
+    if isinstance(confidence, str):
+        match = re.search(r"0(?:\.\d+)?|1(?:\.0+)?", confidence)
+        if match:
+            payload["confidence"] = float(match.group(0))
+    for key in ["products", "evidence", "warnings"]:
+        value = payload.get(key)
+        if value is None:
+            payload[key] = []
+        elif isinstance(value, str):
+            payload[key] = [value]
+    return payload
