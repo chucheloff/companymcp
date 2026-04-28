@@ -4,15 +4,17 @@ import httpx
 
 from company_mcp.cache.company_table import upsert_company_provider_result
 from company_mcp.cache.store import get_json, get_ttl, set_json
+from company_mcp.config import settings
 from company_mcp.mcp.schemas import WikipediaCompanyInput, WikipediaCompanyOutput
 
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
 WIKIPEDIA_REST_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary"
+WIKIPEDIA_PROVIDER_VERSION = "v2"
 
 
 async def lookup_wikipedia_company(data: WikipediaCompanyInput) -> WikipediaCompanyOutput:
     cache_key = _cache_key(data)
-    cached = await get_json(cache_key)
+    cached = None if data.force_refresh else await get_json(cache_key)
     if cached:
         output = WikipediaCompanyOutput.model_validate(cached)
         await upsert_company_provider_result(
@@ -26,7 +28,11 @@ async def lookup_wikipedia_company(data: WikipediaCompanyInput) -> WikipediaComp
 
     warnings: list[str] = []
     try:
-        async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+        async with httpx.AsyncClient(
+            timeout=8.0,
+            follow_redirects=True,
+            headers=_headers(),
+        ) as client:
             title = await _search_title(client, data.company)
             if not title:
                 output = WikipediaCompanyOutput(
@@ -36,9 +42,7 @@ async def lookup_wikipedia_company(data: WikipediaCompanyInput) -> WikipediaComp
                 await _cache_and_upsert(data, cache_key, output)
                 return output
 
-            response = await client.get(f"{WIKIPEDIA_REST_SUMMARY_URL}/{quote(title, safe='')}")
-            response.raise_for_status()
-            payload = response.json()
+            payload = await _summary_payload(client, title)
     except httpx.HTTPStatusError as exc:
         output = WikipediaCompanyOutput(
             confidence=0.0,
@@ -74,6 +78,45 @@ async def lookup_wikipedia_company(data: WikipediaCompanyInput) -> WikipediaComp
     return output
 
 
+async def _summary_payload(client: httpx.AsyncClient, title: str) -> dict:
+    try:
+        response = await client.get(f"{WIKIPEDIA_REST_SUMMARY_URL}/{quote(title, safe='')}")
+        response.raise_for_status()
+        return response.json()
+    except httpx.HTTPStatusError:
+        return await _summary_payload_from_action_api(client, title)
+
+
+async def _summary_payload_from_action_api(client: httpx.AsyncClient, title: str) -> dict:
+    response = await client.get(
+        WIKIPEDIA_API_URL,
+        params={
+            "action": "query",
+            "prop": "extracts|pageprops|info",
+            "exintro": 1,
+            "explaintext": 1,
+            "redirects": 1,
+            "inprop": "url",
+            "titles": title,
+            "format": "json",
+            "formatversion": 2,
+            "origin": "*",
+        },
+    )
+    response.raise_for_status()
+    pages = response.json().get("query", {}).get("pages", [])
+    if not pages or pages[0].get("missing"):
+        return {}
+
+    page = pages[0]
+    return {
+        "title": page.get("title"),
+        "extract": page.get("extract"),
+        "description": (page.get("pageprops") or {}).get("wikibase-shortdesc"),
+        "content_urls": {"desktop": {"page": page.get("fullurl")}},
+    }
+
+
 async def _search_title(client: httpx.AsyncClient, company: str) -> str | None:
     response = await client.get(
         WIKIPEDIA_API_URL,
@@ -84,6 +127,7 @@ async def _search_title(client: httpx.AsyncClient, company: str) -> str | None:
             "srlimit": 3,
             "format": "json",
             "origin": "*",
+            "utf8": 1,
         },
     )
     response.raise_for_status()
@@ -118,7 +162,17 @@ async def _cache_and_upsert(
 def _cache_key(data: WikipediaCompanyInput) -> str:
     company = data.company.strip().lower()
     domain = (data.domain or "").strip().lower()
-    return f"wikipedia_company:v1:{company}:{domain}"
+    return f"wikipedia_company:{WIKIPEDIA_PROVIDER_VERSION}:{company}:{domain}"
+
+
+def _headers() -> dict[str, str]:
+    return {
+        "User-Agent": (
+            f"{settings.app_name}/{settings.app_version} "
+            "(https://github.com/chucheloff/companymcp; company research MCP)"
+        ),
+        "Accept": "application/json",
+    }
 
 
 def _confidence(company: str, title: str | None, summary: str | None, description: str | None) -> float:

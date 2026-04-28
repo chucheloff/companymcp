@@ -5,7 +5,11 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from company_mcp.cache.company_table import get_company_provider_results, upsert_company_provider_result
+from company_mcp.cache.company_table import (
+    get_company_provider_results,
+    purge_company_provider_results,
+    upsert_company_provider_result,
+)
 from company_mcp.mcp.schemas import (
     CompanyOverviewBrief,
     CompanyOverviewInput,
@@ -28,10 +32,18 @@ OVERVIEW_TTL_SECONDS = 24 * 3600
 
 
 async def build_company_overview(data: CompanyOverviewInput) -> CompanyOverviewOutput:
+    purge_result = None
+    if data.force_refresh:
+        purge_result = await purge_company_provider_results(data.company, data.domain)
+
     profile_task = None
     if data.domain:
         profile_task = build_company_profile(
-            CompanyProfileInput(domain=data.domain, max_pages=data.max_pages)
+            CompanyProfileInput(
+                domain=data.domain,
+                max_pages=data.max_pages,
+                force_refresh=data.force_refresh,
+            )
         )
 
     tasks = [
@@ -41,22 +53,40 @@ async def build_company_overview(data: CompanyOverviewInput) -> CompanyOverviewO
                 domain=data.domain,
                 days=data.days,
                 limit=data.news_limit,
+                force_refresh=data.force_refresh,
             )
         ),
         lookup_linkedin_company(
-            LinkedInCompanyLookupInput(company=data.company, domain=data.domain, limit=3)
+            LinkedInCompanyLookupInput(
+                company=data.company,
+                domain=data.domain,
+                limit=3,
+                force_refresh=data.force_refresh,
+            )
         ),
     ]
     if profile_task:
         tasks.append(profile_task)
     if data.include_wikipedia:
-        tasks.append(lookup_wikipedia_company(WikipediaCompanyInput(company=data.company, domain=data.domain)))
+        tasks.append(
+            lookup_wikipedia_company(
+                WikipediaCompanyInput(
+                    company=data.company,
+                    domain=data.domain,
+                    force_refresh=data.force_refresh,
+                )
+            )
+        )
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
     providers, warnings = _collect_provider_results(results)
     cached_providers = await get_company_provider_results(data.company)
     if cached_providers:
         providers["cached_company_results"] = _cached_provider_snapshot(cached_providers)
+    if purge_result:
+        providers["cache_purge"] = purge_result
+        if purge_result["deleted_count"]:
+            warnings.append(f"Purged cached company results for {data.company}.")
 
     company = _company_payload(data, providers)
     sources = _sources(providers)

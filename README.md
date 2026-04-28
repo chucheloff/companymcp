@@ -8,7 +8,7 @@ Standalone MCP server for interview-prep company research. This repository is sc
    - `cp .env.example .env`
 2. Set required keys in `.env`:
    - `TAVILY_API_KEY` (needed for `recent_news`)
-   - `OPENROUTER_API_KEY` (reserved for upcoming extractor/synthesis model calls)
+   - `OPENROUTER_API_KEY` (optional; enables LLM summarization and final overview synthesis)
 3. Start services:
    - `make up`
 4. Check health:
@@ -271,7 +271,7 @@ Returns the company-scoped aggregate cache stored at `company_research:v1:<compa
 
 ### `wikipedia_company(company, domain?)`
 
-Looks for a likely English Wikipedia page for the company and returns a short summary, canonical page URL, confidence, and warnings. This uses public Wikipedia APIs and does not require a separate API key.
+Looks for a likely English Wikipedia page for the company and returns a short summary, canonical page URL, confidence, and warnings. This uses public Wikipedia APIs with an app-specific `User-Agent`, tries the REST summary endpoint first, and falls back to the MediaWiki Action API when REST is blocked. It does not require a separate API key.
 
 ### `company_overview(company, domain?, days=30, news_limit=5, max_pages=8, include_wikipedia=true)`
 
@@ -297,16 +297,21 @@ The final `overview` field is synthesized through OpenRouter `synthesize_json(..
 
 ## Multi-Model Design
 
-Even though the OpenClaw agent will generate the final user-facing Slack message, this server should own extraction quality:
+Even though the OpenClaw agent will generate the final user-facing Slack message, this server should own extraction quality. OpenRouter defaults to the free model router to avoid paid-token failures, and can be switched to paid models when quality or reliability matters more.
 
-- `cheap_extract`: compact OpenAI model via OpenRouter for page extraction, LinkedIn snippet normalization, article/news summarization, and snippet normalization. Runtime tasks `company_profile_extract`, `linkedin_lookup`, and `news_summary` use `OPENROUTER_EXTRACTION_MODEL`.
-- `quality_synthesis`: larger OpenAI model via OpenRouter for `company_overview`, optional `interview_brief`, final briefs, or deep company synthesis. Runtime tasks `final_brief` and `quality_synthesis` use `OPENROUTER_QUALITY_MODEL`.
+- `free`: uses OpenRouter's `openrouter/free` router for extraction and synthesis tasks. OpenRouter selects from currently available free models and filters for request capabilities such as structured outputs.
+- `paid`: uses explicit paid model IDs. Runtime tasks `company_profile_extract`, `linkedin_lookup`, and `news_summary` use `OPENROUTER_EXTRACTION_MODEL`; `final_brief` and `quality_synthesis` use `OPENROUTER_QUALITY_MODEL`.
 
 Model IDs should be environment variables, not hard-coded, because OpenRouter model names and preferred versions change.
 
 Configure model routing with:
 
 ```env
+OPENROUTER_MODEL_TIER=free
+OPENROUTER_FREE_EXTRACTION_MODEL=openrouter/free
+OPENROUTER_FREE_QUALITY_MODEL=openrouter/free
+
+# Used when OPENROUTER_MODEL_TIER=paid
 OPENROUTER_EXTRACTION_MODEL=openai/gpt-5-mini
 OPENROUTER_QUALITY_MODEL=openai/gpt-5.1
 ```

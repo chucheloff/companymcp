@@ -70,3 +70,34 @@ async def get_ttl(key: str) -> int | None:
         _last_failure_at = time.monotonic()
         return None
     return ttl if ttl and ttl > 0 else None
+
+
+async def delete_keys(*keys: str) -> int:
+    global _valkey_client, _last_failure_at
+    if not keys:
+        return 0
+    client = await _get_client()
+    if client is None:
+        return 0
+    try:
+        return int(await client.delete(*keys))
+    except Exception:
+        _valkey_client = None
+        _last_failure_at = time.monotonic()
+        return 0
+
+
+async def delete_pattern(pattern: str) -> list[str]:
+    global _valkey_client, _last_failure_at
+    client = await _get_client()
+    if client is None:
+        return []
+    try:
+        keys = [key async for key in client.scan_iter(match=pattern)]
+        if keys:
+            await client.delete(*keys)
+        return keys
+    except Exception:
+        _valkey_client = None
+        _last_failure_at = time.monotonic()
+        return []

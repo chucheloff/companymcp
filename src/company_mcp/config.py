@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     tavily_api_key: str | None = Field(default=None)
     openrouter_api_key: str | None = Field(default=None)
+    openrouter_model_tier: str = "free"
+    openrouter_free_extraction_model: str = "openrouter/free"
+    openrouter_free_quality_model: str = "openrouter/free"
     openrouter_extraction_model: str = "openai/gpt-5-mini"
     openrouter_quality_model: str = "openai/gpt-5.1"
     valkey_url: str = "redis://valkey:6379/0"

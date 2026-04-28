@@ -151,6 +151,13 @@ async def test_company_overview_falls_back_without_openrouter(monkeypatch: pytes
     async def fake_get_company_provider_results(_company):
         return None
 
+    async def fake_purge_company_provider_results(_company, _domain=None):
+        return {
+            "company_key": "openai",
+            "deleted_keys": ["company_research:v1:openai"],
+            "deleted_count": 1,
+        }
+
     async def fake_upsert_company_provider_result(**_kwargs):
         return True
 
@@ -161,6 +168,11 @@ async def test_company_overview_falls_back_without_openrouter(monkeypatch: pytes
     monkeypatch.setattr(company_overview, "fetch_recent_news", fake_fetch_recent_news)
     monkeypatch.setattr(company_overview, "lookup_linkedin_company", fake_lookup_linkedin_company)
     monkeypatch.setattr(company_overview, "get_company_provider_results", fake_get_company_provider_results)
+    monkeypatch.setattr(
+        company_overview,
+        "purge_company_provider_results",
+        fake_purge_company_provider_results,
+    )
     monkeypatch.setattr(
         company_overview,
         "upsert_company_provider_result",
@@ -174,3 +186,67 @@ async def test_company_overview_falls_back_without_openrouter(monkeypatch: pytes
 
     assert result.overview.summary
     assert "OPENROUTER_API_KEY is not configured." in result.warnings
+
+
+@pytest.mark.anyio
+async def test_company_overview_force_refresh_purges_company_cache(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = {}
+
+    async def fake_fetch_recent_news(_data):
+        return RecentNewsOutput(items=[], query_used="q", confidence=0.0)
+
+    async def fake_lookup_linkedin_company(_data):
+        return LinkedInCompanyLookupOutput(matches=[], query_used="q", confidence=0.0)
+
+    async def fake_get_company_provider_results(_company):
+        return None
+
+    async def fake_purge_company_provider_results(company, domain=None):
+        calls["purged"] = company
+        calls["domain"] = domain
+        return {
+            "company_key": "openai",
+            "deleted_keys": ["company_research:v1:openai"],
+            "deleted_count": 1,
+        }
+
+    async def fake_upsert_company_provider_result(**_kwargs):
+        return True
+
+    class FakeOpenRouterClient:
+        async def synthesize_json(self, _prompt: str):
+            return {
+                "summary": "Clean overview.",
+                "what_they_do": "Builds AI systems.",
+                "market_position": None,
+                "products": [],
+                "recent_developments": [],
+                "interview_angles": [],
+                "uncertainties": [],
+            }
+
+    monkeypatch.setattr(company_overview, "fetch_recent_news", fake_fetch_recent_news)
+    monkeypatch.setattr(company_overview, "lookup_linkedin_company", fake_lookup_linkedin_company)
+    monkeypatch.setattr(company_overview, "get_company_provider_results", fake_get_company_provider_results)
+    monkeypatch.setattr(
+        company_overview,
+        "purge_company_provider_results",
+        fake_purge_company_provider_results,
+    )
+    monkeypatch.setattr(
+        company_overview,
+        "upsert_company_provider_result",
+        fake_upsert_company_provider_result,
+    )
+    monkeypatch.setattr(company_overview, "OpenRouterClient", FakeOpenRouterClient)
+
+    result = await company_overview.build_company_overview(
+        CompanyOverviewInput(company="OpenAI", include_wikipedia=False, force_refresh=True)
+    )
+
+    assert calls["purged"] == "OpenAI"
+    assert calls["domain"] is None
+    assert result.providers["cache_purge"]["deleted_count"] == 1
+    assert "Purged cached company results for OpenAI." in result.warnings
