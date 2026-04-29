@@ -81,18 +81,23 @@ def _normalize_company_key(company: str) -> str:
 def _provider_cache_patterns(company: str, domain: str | None) -> list[str]:
     company_clean = company.strip()
     company_lower = company_clean.lower()
+    company_key = _normalize_company_key(company)
     patterns = [
         f"recent_news:v2:*{company_clean}*",
         f"wikipedia_company:*:{company_lower}:*",
+        f"linkedin_lookup:v3:*:{company_key}:*",
+        f"linkedin_company_lookup:v2:{company_key}:*",
     ]
     if domain:
         domain_clean = domain.strip().lower()
+        domain_key = _normalize_company_key(domain)
         patterns.extend(
             [
                 f"company_research:{COMPANY_TABLE_VERSION}:{domain_clean}",
                 f"company_profile:*:{domain_clean}:*",
                 f"recent_news:v2:*{domain_clean}*",
                 f"wikipedia_company:*:*:{domain_clean}",
+                f"linkedin_company_lookup:v2:*:{domain_key}:*",
             ]
         )
     return patterns

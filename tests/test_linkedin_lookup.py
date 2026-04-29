@@ -1,7 +1,13 @@
 import pytest
 
 from company_mcp.mcp.schemas import LinkedInLookupInput, LinkedInLookupOutput, LinkedInMatch
-from company_mcp.providers.linkedin_lookup import _score_match, _ttl_seconds, lookup_linkedin
+from company_mcp.providers.linkedin_lookup import (
+    _cache_key,
+    _is_public_linkedin_profile,
+    _score_match,
+    _ttl_seconds,
+    lookup_linkedin,
+)
 
 
 @pytest.mark.anyio
@@ -99,3 +105,17 @@ def test_linkedin_lookup_uses_short_ttl_for_weak_results() -> None:
         )
         == 24 * 3600
     )
+
+
+def test_linkedin_lookup_rejects_spoofed_linkedin_hostname() -> None:
+    assert _is_public_linkedin_profile("https://www.linkedin.com/in/jane-doe") is True
+    assert _is_public_linkedin_profile("https://evil-linkedin.com/in/jane-doe") is False
+
+
+def test_linkedin_lookup_cache_key_is_purgeable_by_company() -> None:
+    key = _cache_key(
+        LinkedInLookupInput(name="Jane Doe", company="Example Inc"),
+        '"Jane Doe" site:linkedin.com/in "Example Inc"',
+    )
+
+    assert key.startswith("linkedin_lookup:v3:jane-doe:example-inc:")

@@ -1,8 +1,17 @@
 import json
 
+import pytest
 from fastapi.testclient import TestClient
 
 from company_mcp.app import app
+from company_mcp.mcp import server
+from company_mcp.mcp.schemas import (
+    CompanyPayload,
+    CompanyProfileOutput,
+    LinkedInCompanyLookupOutput,
+    RecentNewsOutput,
+    WikipediaCompanyOutput,
+)
 
 
 def _extract_sse_json(response_text: str) -> dict:
@@ -65,3 +74,44 @@ def test_mcp_company_profile_tool_call() -> None:
         assert tool_response.status_code == 200
         body = _extract_sse_json(tool_response.text)
         assert "result" in body
+
+
+@pytest.mark.anyio
+async def test_mcp_tools_pass_force_refresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = {}
+
+    async def fake_build_company_profile(payload):
+        calls["company_profile"] = payload.force_refresh
+        return CompanyProfileOutput(
+            company=CompanyPayload(name="Example", domain="example.com"),
+            confidence=0.1,
+        )
+
+    async def fake_fetch_recent_news(payload):
+        calls["recent_news"] = payload.force_refresh
+        return RecentNewsOutput(items=[], query_used="q", confidence=0.0)
+
+    async def fake_lookup_linkedin_company(payload):
+        calls["linkedin_company_lookup"] = payload.force_refresh
+        return LinkedInCompanyLookupOutput(matches=[], query_used="q", confidence=0.0)
+
+    async def fake_lookup_wikipedia_company(payload):
+        calls["wikipedia_company"] = payload.force_refresh
+        return WikipediaCompanyOutput(confidence=0.0)
+
+    monkeypatch.setattr(server, "build_company_profile", fake_build_company_profile)
+    monkeypatch.setattr(server, "fetch_recent_news", fake_fetch_recent_news)
+    monkeypatch.setattr(server, "lookup_linkedin_company", fake_lookup_linkedin_company)
+    monkeypatch.setattr(server, "lookup_wikipedia_company", fake_lookup_wikipedia_company)
+
+    await server.company_profile("example.com", force_refresh=True)
+    await server.recent_news("Example", force_refresh=True)
+    await server.linkedin_company_lookup("Example", force_refresh=True)
+    await server.wikipedia_company("Example", force_refresh=True)
+
+    assert calls == {
+        "company_profile": True,
+        "recent_news": True,
+        "linkedin_company_lookup": True,
+        "wikipedia_company": True,
+    }

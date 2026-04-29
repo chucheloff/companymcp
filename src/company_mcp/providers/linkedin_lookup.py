@@ -15,7 +15,7 @@ from company_mcp.providers.tavily_news import tavily_search
 async def lookup_linkedin(data: LinkedInLookupInput) -> LinkedInLookupOutput:
     query = _build_query(data)
     cache_key = _cache_key(data, query)
-    cached = await get_json(cache_key)
+    cached = None if data.force_refresh else await get_json(cache_key)
     if cached:
         output = LinkedInLookupOutput.model_validate(cached)
         await upsert_company_provider_result(
@@ -126,7 +126,9 @@ def _cache_key(data: LinkedInLookupInput, query: str) -> str:
         "title_hint": (data.title_hint or "").strip().lower(),
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
-    return f"linkedin_lookup:v2:{digest}"
+    name_key = _cache_component(data.name)
+    company_key = _cache_component(data.company or "unknown")
+    return f"linkedin_lookup:v3:{name_key}:{company_key}:{digest}"
 
 
 def _build_query(data: LinkedInLookupInput) -> str:
@@ -141,7 +143,11 @@ def _build_query(data: LinkedInLookupInput) -> str:
 def _is_public_linkedin_profile(url: str) -> bool:
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
-    return hostname.endswith("linkedin.com") and parsed.path.startswith("/in/")
+    return _is_linkedin_hostname(hostname) and parsed.path.startswith("/in/")
+
+
+def _is_linkedin_hostname(hostname: str) -> bool:
+    return hostname == "linkedin.com" or hostname.endswith(".linkedin.com")
 
 
 def _score_match(
@@ -279,6 +285,11 @@ def _clean_optional_string(value) -> str | None:
 def _slug_matches_name(url: str, name_tokens: list[str]) -> bool:
     path = urlparse(url).path.lower()
     return all(token in path for token in name_tokens)
+
+
+def _cache_component(value: str) -> str:
+    normalized = "-".join(value.strip().lower().replace("_", "-").split())
+    return normalized or "unknown"
 
 
 def _ttl_seconds(output: LinkedInLookupOutput) -> int:

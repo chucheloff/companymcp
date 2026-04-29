@@ -7,7 +7,7 @@ import httpx
 from company_mcp.cache.company_table import upsert_company_provider_result
 from company_mcp.cache.store import get_json, get_ttl, set_json
 from company_mcp.extractors.base import PageDocument
-from company_mcp.extractors.browser_snapshot import snapshot_url
+from company_mcp.extractors.browser_snapshot import snapshot_urls
 from company_mcp.extractors.html_utils import extract_meta, extract_text, extract_title
 from company_mcp.extractors.registry import EXTRACTOR_VERSION, merge_facts, run_extractors
 from company_mcp.mcp.schemas import CompanyPayload, CompanyProfileInput, CompanyProfileOutput, SourceEvidence
@@ -75,9 +75,15 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
     pages: list[PageDocument] = []
 
     if data.pipeline == "browser_snapshot":
-        for url in selected_urls:
+        try:
+            snapshot_results = await snapshot_urls(selected_urls, validate_url=_validate_public_url)
+        except Exception as exc:
+            snapshot_results = [exc] * len(selected_urls)
+        for url, snapshot_result in zip(selected_urls, snapshot_results, strict=True):
             try:
-                page = await snapshot_url(url, validate_url=_validate_public_url)
+                if isinstance(snapshot_result, Exception):
+                    raise snapshot_result
+                page = snapshot_result
                 if _is_probably_challenge_page(page):
                     warnings.append(f"Skipped {page.url}: browser challenge page detected.")
                     continue
@@ -193,7 +199,7 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
 def _company_profile_cache_key(data: CompanyProfileInput, normalized_domain: str) -> str:
     return (
         f"company_profile:{EXTRACTOR_VERSION}:{normalized_domain}:"
-        f"{data.pipeline}:pages={data.max_pages}"
+        f"{data.pipeline}:pages={data.max_pages}:freshness={data.freshness_hours}"
     )
 
 

@@ -2,6 +2,8 @@ import pytest
 
 from company_mcp.mcp.schemas import LinkedInCompanyLookupInput, LinkedInCompanyLookupOutput
 from company_mcp.providers.linkedin_company_lookup import (
+    _cache_key,
+    _is_public_linkedin_company,
     _score_company_match,
     _ttl_seconds,
     lookup_linkedin_company,
@@ -78,3 +80,17 @@ def test_linkedin_company_lookup_requires_company_match_for_high_score() -> None
 
 def test_linkedin_company_lookup_uses_short_ttl_for_no_matches() -> None:
     assert _ttl_seconds(LinkedInCompanyLookupOutput(matches=[], query_used="q")) == 3600
+
+
+def test_linkedin_company_lookup_rejects_spoofed_linkedin_hostname() -> None:
+    assert _is_public_linkedin_company("https://www.linkedin.com/company/example") is True
+    assert _is_public_linkedin_company("https://evil-linkedin.com/company/example") is False
+
+
+def test_linkedin_company_lookup_cache_key_is_purgeable_by_company_and_domain() -> None:
+    key = _cache_key(
+        LinkedInCompanyLookupInput(company="Example Inc", domain="example.com"),
+        '"Example Inc" site:linkedin.com/company "example.com"',
+    )
+
+    assert key.startswith("linkedin_company_lookup:v2:example-inc:example.com:")

@@ -66,6 +66,9 @@ async def test_purge_company_provider_results_deletes_company_key(
     assert calls["keys"] == ("company_research:v1:openai",)
     assert "company_profile:*:openai.com:*" in calls["patterns"]
     assert "recent_news:v2:*OpenAI*" in calls["patterns"]
+    assert "linkedin_lookup:v3:*:openai:*" in calls["patterns"]
+    assert "linkedin_company_lookup:v2:openai:*" in calls["patterns"]
+    assert "linkedin_company_lookup:v2:*:openai.com:*" in calls["patterns"]
     assert result["company_key"] == "openai"
     assert "company_research:v1:openai" in result["deleted_keys"]
     assert result["deleted_count"] == len(result["deleted_keys"])
