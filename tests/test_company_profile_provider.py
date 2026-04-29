@@ -49,6 +49,19 @@ def test_company_profile_cache_key_includes_page_limit() -> None:
     assert first != second
 
 
+def test_company_profile_cache_key_includes_freshness() -> None:
+    first = _company_profile_cache_key(
+        CompanyProfileInput(domain="example.com", freshness_hours=1),
+        "example.com",
+    )
+    second = _company_profile_cache_key(
+        CompanyProfileInput(domain="example.com", freshness_hours=168),
+        "example.com",
+    )
+
+    assert first != second
+
+
 def test_challenge_page_detection() -> None:
     page = PageDocument(
         url="https://openai.com",

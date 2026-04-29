@@ -25,6 +25,7 @@ async def company_profile(
     max_pages: int = 8,
     freshness_hours: int = 168,
     pipeline: str = "auto",
+    force_refresh: bool = False,
 ) -> dict:
     """Return a structured company profile with source evidence."""
     payload = CompanyProfileInput(
@@ -32,15 +33,28 @@ async def company_profile(
         max_pages=max_pages,
         freshness_hours=freshness_hours,
         pipeline=pipeline,
+        force_refresh=force_refresh,
     )
     result = await build_company_profile(payload)
     return result.model_dump(mode="json")
 
 
 @mcp.tool()
-async def recent_news(company: str, days: int = 30, domain: str | None = None, limit: int = 8) -> dict:
+async def recent_news(
+    company: str,
+    days: int = 30,
+    domain: str | None = None,
+    limit: int = 8,
+    force_refresh: bool = False,
+) -> dict:
     """Return recent company news from Tavily."""
-    payload = RecentNewsInput(company=company, domain=domain, days=days, limit=limit)
+    payload = RecentNewsInput(
+        company=company,
+        domain=domain,
+        days=days,
+        limit=limit,
+        force_refresh=force_refresh,
+    )
     result = await fetch_recent_news(payload)
     return result.model_dump(mode="json")
 
@@ -51,6 +65,7 @@ async def linkedin_lookup(
     company: str | None = None,
     title_hint: str | None = None,
     limit: int = 5,
+    force_refresh: bool = False,
 ) -> dict:
     """Return ranked public LinkedIn profile candidates from search snippets."""
     payload = LinkedInLookupInput(
@@ -58,6 +73,7 @@ async def linkedin_lookup(
         company=company,
         title_hint=title_hint,
         limit=limit,
+        force_refresh=force_refresh,
     )
     result = await lookup_linkedin(payload)
     return result.model_dump(mode="json")
@@ -68,17 +84,27 @@ async def linkedin_company_lookup(
     company: str,
     domain: str | None = None,
     limit: int = 3,
+    force_refresh: bool = False,
 ) -> dict:
     """Return ranked public LinkedIn company candidates from search snippets."""
-    payload = LinkedInCompanyLookupInput(company=company, domain=domain, limit=limit)
+    payload = LinkedInCompanyLookupInput(
+        company=company,
+        domain=domain,
+        limit=limit,
+        force_refresh=force_refresh,
+    )
     result = await lookup_linkedin_company(payload)
     return result.model_dump(mode="json")
 
 
 @mcp.tool()
-async def wikipedia_company(company: str, domain: str | None = None) -> dict:
+async def wikipedia_company(
+    company: str,
+    domain: str | None = None,
+    force_refresh: bool = False,
+) -> dict:
     """Return a Wikipedia-derived company summary when a likely page exists."""
-    payload = WikipediaCompanyInput(company=company, domain=domain)
+    payload = WikipediaCompanyInput(company=company, domain=domain, force_refresh=force_refresh)
     result = await lookup_wikipedia_company(payload)
     return result.model_dump(mode="json")
 

@@ -128,13 +128,19 @@ def _cache_key(data: LinkedInCompanyLookupInput, query: str) -> str:
         "domain": (data.domain or "").strip().lower(),
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
-    return f"linkedin_company_lookup:v1:{digest}"
+    company_key = _cache_component(data.company)
+    domain_key = _cache_component(data.domain or "unknown")
+    return f"linkedin_company_lookup:v2:{company_key}:{domain_key}:{digest}"
 
 
 def _is_public_linkedin_company(url: str) -> bool:
     parsed = urlparse(url)
     hostname = parsed.hostname or ""
-    return hostname.endswith("linkedin.com") and parsed.path.startswith("/company/")
+    return _is_linkedin_hostname(hostname) and parsed.path.startswith("/company/")
+
+
+def _is_linkedin_hostname(hostname: str) -> bool:
+    return hostname == "linkedin.com" or hostname.endswith(".linkedin.com")
 
 
 def _score_company_match(
@@ -255,3 +261,8 @@ def _ttl_seconds(output: LinkedInCompanyLookupOutput) -> int:
     if output.confidence < 0.7:
         return 24 * 3600
     return 7 * 24 * 3600
+
+
+def _cache_component(value: str) -> str:
+    normalized = "-".join(value.strip().lower().replace("_", "-").split())
+    return normalized or "unknown"

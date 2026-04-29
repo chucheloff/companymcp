@@ -35,6 +35,11 @@ async def build_company_overview(data: CompanyOverviewInput) -> CompanyOverviewO
     purge_result = None
     if data.force_refresh:
         purge_result = await purge_company_provider_results(data.company, data.domain)
+    else:
+        cached = await get_company_provider_results(data.company)
+        cached_overview = _cached_overview_for_request(cached, data)
+        if cached_overview:
+            return cached_overview
 
     profile_task = None
     if data.domain:
@@ -111,6 +116,29 @@ async def build_company_overview(data: CompanyOverviewInput) -> CompanyOverviewO
     return output
 
 
+def _cached_overview_for_request(
+    cached: dict[str, Any] | None,
+    data: CompanyOverviewInput,
+) -> CompanyOverviewOutput | None:
+    if not cached:
+        return None
+    entry = (cached.get("providers") or {}).get(OVERVIEW_PROVIDER)
+    if not isinstance(entry, dict):
+        return None
+    if entry.get("request") != data.model_dump(mode="json"):
+        return None
+    expires_at = _parse_datetime(entry.get("expires_at"))
+    if not expires_at or expires_at <= datetime.now(UTC):
+        return None
+    result = entry.get("result")
+    if not isinstance(result, dict):
+        return None
+    try:
+        return CompanyOverviewOutput.model_validate(result)
+    except ValidationError:
+        return None
+
+
 def _collect_provider_results(results: list[Any]) -> tuple[dict[str, Any], list[str]]:
     providers: dict[str, Any] = {}
     warnings: list[str] = []
@@ -124,6 +152,15 @@ def _collect_provider_results(results: list[Any]) -> tuple[dict[str, Any], list[
         providers[name] = payload
         warnings.extend(payload.get("warnings") or [])
     return providers, warnings
+
+
+def _parse_datetime(value: Any) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _cached_provider_snapshot(cached: dict[str, Any]) -> dict[str, Any]:

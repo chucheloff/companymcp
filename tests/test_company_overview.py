@@ -1,7 +1,11 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from company_mcp.mcp.schemas import (
+    CompanyOverviewBrief,
     CompanyOverviewInput,
+    CompanyOverviewOutput,
     CompanyProfileOutput,
     CompanyPayload,
     LinkedInCompanyLookupOutput,
@@ -12,6 +16,50 @@ from company_mcp.mcp.schemas import (
     WikipediaCompanyOutput,
 )
 from company_mcp.providers import company_overview
+
+
+@pytest.mark.anyio
+async def test_company_overview_reuses_matching_cached_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    payload = CompanyOverviewInput(company="OpenAI", domain="openai.com")
+    cached_output = CompanyOverviewOutput(
+        company=CompanyPayload(
+            name="OpenAI",
+            domain="openai.com",
+            description="Cached overview.",
+        ),
+        overview=CompanyOverviewBrief(
+            summary="Cached overview.",
+            what_they_do="Cached overview.",
+        ),
+        providers={},
+        confidence=0.8,
+    )
+
+    async def fake_get_company_provider_results(_company):
+        return {
+            "company_key": "openai",
+            "providers": {
+                "company_overview": {
+                    "expires_at": (datetime.now(UTC) + timedelta(hours=1)).isoformat(),
+                    "request": payload.model_dump(mode="json"),
+                    "result": cached_output.model_dump(mode="json"),
+                }
+            },
+        }
+
+    async def fail_provider(*_args, **_kwargs):
+        raise AssertionError("Provider should not be called on matching overview cache hit")
+
+    monkeypatch.setattr(company_overview, "get_company_provider_results", fake_get_company_provider_results)
+    monkeypatch.setattr(company_overview, "fetch_recent_news", fail_provider)
+    monkeypatch.setattr(company_overview, "lookup_linkedin_company", fail_provider)
+    monkeypatch.setattr(company_overview, "build_company_profile", fail_provider)
+    monkeypatch.setattr(company_overview, "lookup_wikipedia_company", fail_provider)
+
+    result = await company_overview.build_company_overview(payload)
+
+    assert result.overview.summary == "Cached overview."
+    assert result.confidence == 0.8
 
 
 @pytest.mark.anyio

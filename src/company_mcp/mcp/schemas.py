@@ -75,6 +75,7 @@ class LinkedInLookupInput(BaseModel):
     company: str | None = Field(default=None, max_length=120)
     title_hint: str | None = Field(default=None, max_length=160)
     limit: int = Field(default=5, ge=1, le=10)
+    force_refresh: bool = False
 
 
 class LinkedInMatch(BaseModel):
