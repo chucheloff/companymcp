@@ -25,6 +25,7 @@ async def company_profile(
     max_pages: int = 8,
     freshness_hours: int = 168,
     pipeline: str = "auto",
+    use_openrouter: bool = True,
     force_refresh: bool = False,
 ) -> dict:
     """Return a structured company profile with source evidence."""
@@ -33,6 +34,7 @@ async def company_profile(
         max_pages=max_pages,
         freshness_hours=freshness_hours,
         pipeline=pipeline,
+        use_openrouter=use_openrouter,
         force_refresh=force_refresh,
     )
     result = await build_company_profile(payload)
@@ -45,6 +47,7 @@ async def recent_news(
     days: int = 30,
     domain: str | None = None,
     limit: int = 8,
+    use_openrouter: bool = True,
     force_refresh: bool = False,
 ) -> dict:
     """Return recent company news from Tavily."""
@@ -53,6 +56,7 @@ async def recent_news(
         domain=domain,
         days=days,
         limit=limit,
+        use_openrouter=use_openrouter,
         force_refresh=force_refresh,
     )
     result = await fetch_recent_news(payload)
@@ -65,6 +69,7 @@ async def linkedin_lookup(
     company: str | None = None,
     title_hint: str | None = None,
     limit: int = 5,
+    use_openrouter: bool = True,
     force_refresh: bool = False,
 ) -> dict:
     """Return ranked public LinkedIn profile candidates from search snippets."""
@@ -73,6 +78,7 @@ async def linkedin_lookup(
         company=company,
         title_hint=title_hint,
         limit=limit,
+        use_openrouter=use_openrouter,
         force_refresh=force_refresh,
     )
     result = await lookup_linkedin(payload)
@@ -84,6 +90,7 @@ async def linkedin_company_lookup(
     company: str,
     domain: str | None = None,
     limit: int = 3,
+    use_openrouter: bool = True,
     force_refresh: bool = False,
 ) -> dict:
     """Return ranked public LinkedIn company candidates from search snippets."""
@@ -91,6 +98,7 @@ async def linkedin_company_lookup(
         company=company,
         domain=domain,
         limit=limit,
+        use_openrouter=use_openrouter,
         force_refresh=force_refresh,
     )
     result = await lookup_linkedin_company(payload)
@@ -117,6 +125,7 @@ async def company_overview(
     news_limit: int = 5,
     max_pages: int = 8,
     include_wikipedia: bool = True,
+    use_openrouter: bool = True,
     force_refresh: bool = False,
 ) -> dict:
     """Collect company providers and synthesize a final company overview."""
@@ -127,6 +136,7 @@ async def company_overview(
         news_limit=news_limit,
         max_pages=max_pages,
         include_wikipedia=include_wikipedia,
+        use_openrouter=use_openrouter,
         force_refresh=force_refresh,
     )
     result = await build_company_overview(payload)

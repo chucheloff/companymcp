@@ -7,24 +7,33 @@ from company_mcp.mcp.schemas import ExtractionPipelineName
 EXTRACTOR_VERSION = "v2"
 
 
-def selected_pipelines(name: ExtractionPipelineName) -> list[ExtractorPipeline]:
+def selected_pipelines(
+    name: ExtractionPipelineName,
+    *,
+    use_openrouter: bool = True,
+) -> list[ExtractorPipeline]:
     if name == "metadata":
         return [metadata_pipeline()]
     if name == "dom_rules":
         return [dom_rules_pipeline()]
     if name == "llm_extract":
-        return [llm_extract_pipeline()]
+        return [llm_extract_pipeline()] if use_openrouter else []
     if name == "browser_snapshot":
         return [metadata_pipeline(), dom_rules_pipeline()]
-    return [metadata_pipeline(), dom_rules_pipeline(), llm_extract_pipeline()]
+    pipelines = [metadata_pipeline(), dom_rules_pipeline()]
+    if use_openrouter:
+        pipelines.append(llm_extract_pipeline())
+    return pipelines
 
 
 async def run_extractors(
     pages: list[PageDocument],
     pipeline_name: ExtractionPipelineName,
+    *,
+    use_openrouter: bool = True,
 ) -> list[ExtractedFacts]:
     results: list[ExtractedFacts] = []
-    for pipeline in selected_pipelines(pipeline_name):
+    for pipeline in selected_pipelines(pipeline_name, use_openrouter=use_openrouter):
         result = await pipeline.extract(pages)
         results.append(result)
         if pipeline_name == "auto" and result.confidence >= 0.65:

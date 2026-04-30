@@ -5,7 +5,11 @@ from company_mcp.cache.company_table import upsert_company_provider_result
 from company_mcp.cache.store import get_json, get_ttl, set_json
 from company_mcp.config import settings
 from company_mcp.mcp.schemas import RecentNewsInput, RecentNewsItem, RecentNewsOutput
-from company_mcp.models.openrouter import OpenRouterClient, OpenRouterUnavailable
+from company_mcp.models.openrouter import (
+    OpenRouterClient,
+    OpenRouterUnavailable,
+    is_enabled as openrouter_enabled,
+)
 
 TAVILY_SEARCH_URL = "https://api.tavily.com/search"
 
@@ -14,7 +18,10 @@ async def fetch_recent_news(data: RecentNewsInput) -> RecentNewsOutput:
     query = f"{data.company} company news"
     if data.domain:
         query = f"{query} {data.domain}"
-    cache_key = f"recent_news:v2:{query}:{data.days}:{data.limit}"
+    cache_key = (
+        f"recent_news:v2:{query}:{data.days}:{data.limit}:"
+        f"openrouter={int(data.use_openrouter)}:openrouter_enabled={int(openrouter_enabled())}"
+    )
 
     cached = None if data.force_refresh else await get_json(cache_key)
     if cached:
@@ -65,7 +72,11 @@ async def fetch_recent_news(data: RecentNewsInput) -> RecentNewsOutput:
         )
 
     seen: set[str] = set()
-    summarizer = OpenRouterClient() if settings.openrouter_api_key else None
+    summarizer = (
+        OpenRouterClient()
+        if data.use_openrouter and openrouter_enabled() and settings.openrouter_api_key
+        else None
+    )
     for row in result_json.get("results", []):
         url = (row.get("url") or "").strip()
         title = (row.get("title") or "").strip()

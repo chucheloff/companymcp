@@ -20,6 +20,10 @@ ModelTask = Literal[
 ModelTier = Literal["free", "paid"]
 
 
+def is_enabled() -> bool:
+    return settings.openrouter_enabled
+
+
 def model_for_task(task: ModelTask) -> str:
     tier = model_tier()
     if task in {"final_brief", "quality_synthesis"}:
@@ -77,6 +81,8 @@ class OpenRouterClient:
         temperature: float = 0,
         max_tokens: int | None = None,
     ) -> str:
+        if not is_enabled():
+            raise OpenRouterUnavailable("OpenRouter is disabled by OPENROUTER_ENABLED=false.")
         if not self.api_key:
             raise OpenRouterUnavailable("OPENROUTER_API_KEY is not configured.")
 

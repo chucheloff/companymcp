@@ -11,6 +11,7 @@ from company_mcp.extractors.browser_snapshot import snapshot_urls
 from company_mcp.extractors.html_utils import extract_meta, extract_text, extract_title
 from company_mcp.extractors.registry import EXTRACTOR_VERSION, merge_facts, run_extractors
 from company_mcp.mcp.schemas import CompanyPayload, CompanyProfileInput, CompanyProfileOutput, SourceEvidence
+from company_mcp.models.openrouter import is_enabled as openrouter_enabled
 
 MAX_REDIRECTS = 5
 
@@ -30,6 +31,7 @@ def _normalize_domain(domain: str) -> str:
 
 async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutput:
     normalized_domain = _normalize_domain(data.domain)
+    use_openrouter = data.use_openrouter and openrouter_enabled()
     if not _is_safe_public_domain(normalized_domain):
         return CompanyProfileOutput(
             company=CompanyPayload(
@@ -156,9 +158,17 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
             )
         return result
 
-    extractor_results = await run_extractors(pages, data.pipeline)
+    extractor_results = await run_extractors(
+        pages,
+        data.pipeline,
+        use_openrouter=use_openrouter,
+    )
     facts = merge_facts(extractor_results)
     warnings.extend(facts.warnings)
+    if not data.use_openrouter and data.pipeline in {"auto", "llm_extract"}:
+        warnings.append("OpenRouter extraction skipped because use_openrouter is false.")
+    elif not openrouter_enabled() and data.pipeline in {"auto", "llm_extract"}:
+        warnings.append("OpenRouter extraction skipped because OPENROUTER_ENABLED=false.")
 
     payload = CompanyPayload(
         name=facts.name or normalized_domain.split(".")[0].replace("-", " ").title(),
@@ -199,7 +209,8 @@ async def build_company_profile(data: CompanyProfileInput) -> CompanyProfileOutp
 def _company_profile_cache_key(data: CompanyProfileInput, normalized_domain: str) -> str:
     return (
         f"company_profile:{EXTRACTOR_VERSION}:{normalized_domain}:"
-        f"{data.pipeline}:pages={data.max_pages}:freshness={data.freshness_hours}"
+        f"{data.pipeline}:pages={data.max_pages}:freshness={data.freshness_hours}:"
+        f"openrouter={int(data.use_openrouter)}:openrouter_enabled={int(openrouter_enabled())}"
     )
 
 

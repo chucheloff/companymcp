@@ -17,6 +17,7 @@ class CompanyProfileInput(BaseModel):
     max_pages: int = Field(default=8, ge=1, le=20)
     freshness_hours: int = Field(default=168, ge=1, le=24 * 30)
     pipeline: ExtractionPipelineName = "auto"
+    use_openrouter: bool = True
     force_refresh: bool = False
 
 
@@ -51,6 +52,7 @@ class RecentNewsInput(BaseModel):
     domain: str | None = None
     days: int = Field(default=30, ge=1, le=90)
     limit: int = Field(default=8, ge=1, le=20)
+    use_openrouter: bool = True
     force_refresh: bool = False
 
 
@@ -75,6 +77,7 @@ class LinkedInLookupInput(BaseModel):
     company: str | None = Field(default=None, max_length=120)
     title_hint: str | None = Field(default=None, max_length=160)
     limit: int = Field(default=5, ge=1, le=10)
+    use_openrouter: bool = True
     force_refresh: bool = False
 
 
@@ -100,6 +103,7 @@ class LinkedInCompanyLookupInput(BaseModel):
     company: str = Field(min_length=2, max_length=120)
     domain: str | None = Field(default=None, max_length=255)
     limit: int = Field(default=3, ge=1, le=10)
+    use_openrouter: bool = True
     force_refresh: bool = False
 
 
@@ -143,6 +147,7 @@ class CompanyOverviewInput(BaseModel):
     news_limit: int = Field(default=5, ge=1, le=12)
     max_pages: int = Field(default=8, ge=1, le=20)
     include_wikipedia: bool = True
+    use_openrouter: bool = True
     force_refresh: bool = False
 
 

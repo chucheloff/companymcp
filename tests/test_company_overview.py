@@ -237,6 +237,71 @@ async def test_company_overview_falls_back_without_openrouter(monkeypatch: pytes
 
 
 @pytest.mark.anyio
+async def test_company_overview_skips_openrouter_when_requested(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def fake_fetch_recent_news(data):
+        assert data.use_openrouter is False
+        return RecentNewsOutput(
+            items=[
+                RecentNewsItem(
+                    title="OpenAI launches a product",
+                    url="https://example.com/news",
+                    summary="OpenAI launched a product.",
+                )
+            ],
+            query_used="q",
+            confidence=0.7,
+        )
+
+    async def fake_lookup_linkedin_company(data):
+        assert data.use_openrouter is False
+        return LinkedInCompanyLookupOutput(matches=[], query_used="q", confidence=0.0)
+
+    async def fake_build_company_profile(data):
+        assert data.use_openrouter is False
+        return CompanyProfileOutput(
+            company=CompanyPayload(
+                name="OpenAI",
+                domain="openai.com",
+                description="OpenAI builds AI systems.",
+            ),
+            confidence=0.7,
+        )
+
+    async def fake_get_company_provider_results(_company):
+        return None
+
+    async def fake_upsert_company_provider_result(**_kwargs):
+        return True
+
+    class FakeOpenRouterClient:
+        async def synthesize_json(self, _prompt: str):
+            raise AssertionError("OpenRouter should not be called when use_openrouter is false")
+
+    monkeypatch.setattr(company_overview, "fetch_recent_news", fake_fetch_recent_news)
+    monkeypatch.setattr(company_overview, "lookup_linkedin_company", fake_lookup_linkedin_company)
+    monkeypatch.setattr(company_overview, "build_company_profile", fake_build_company_profile)
+    monkeypatch.setattr(company_overview, "get_company_provider_results", fake_get_company_provider_results)
+    monkeypatch.setattr(
+        company_overview,
+        "upsert_company_provider_result",
+        fake_upsert_company_provider_result,
+    )
+    monkeypatch.setattr(company_overview, "OpenRouterClient", FakeOpenRouterClient)
+
+    result = await company_overview.build_company_overview(
+        CompanyOverviewInput(
+            company="OpenAI",
+            domain="openai.com",
+            include_wikipedia=False,
+            use_openrouter=False,
+        )
+    )
+
+    assert result.overview.summary == "OpenAI builds AI systems."
+    assert "OpenRouter final brief synthesis skipped because use_openrouter is false." in result.warnings
+
+
+@pytest.mark.anyio
 async def test_company_overview_force_refresh_purges_company_cache(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
