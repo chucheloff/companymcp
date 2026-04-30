@@ -21,7 +21,11 @@ from company_mcp.mcp.schemas import (
     SourceEvidence,
     WikipediaCompanyInput,
 )
-from company_mcp.models.openrouter import OpenRouterClient, OpenRouterUnavailable
+from company_mcp.models.openrouter import (
+    OpenRouterClient,
+    OpenRouterUnavailable,
+    is_enabled as openrouter_enabled,
+)
 from company_mcp.providers.company_profile import build_company_profile
 from company_mcp.providers.linkedin_company_lookup import lookup_linkedin_company
 from company_mcp.providers.tavily_news import fetch_recent_news
@@ -47,6 +51,7 @@ async def build_company_overview(data: CompanyOverviewInput) -> CompanyOverviewO
             CompanyProfileInput(
                 domain=data.domain,
                 max_pages=data.max_pages,
+                use_openrouter=data.use_openrouter,
                 force_refresh=data.force_refresh,
             )
         )
@@ -58,6 +63,7 @@ async def build_company_overview(data: CompanyOverviewInput) -> CompanyOverviewO
                 domain=data.domain,
                 days=data.days,
                 limit=data.news_limit,
+                use_openrouter=data.use_openrouter,
                 force_refresh=data.force_refresh,
             )
         ),
@@ -66,6 +72,7 @@ async def build_company_overview(data: CompanyOverviewInput) -> CompanyOverviewO
                 company=data.company,
                 domain=data.domain,
                 limit=3,
+                use_openrouter=data.use_openrouter,
                 force_refresh=data.force_refresh,
             )
         ),
@@ -208,6 +215,14 @@ async def _synthesize_overview(
 ) -> tuple[CompanyOverviewBrief, list[str]]:
     if not providers:
         return _fallback_overview(company, providers), ["No provider results available for synthesis."]
+    if not data.use_openrouter:
+        return _fallback_overview(company, providers), [
+            "OpenRouter final brief synthesis skipped because use_openrouter is false."
+        ]
+    if not openrouter_enabled():
+        return _fallback_overview(company, providers), [
+            "OpenRouter final brief synthesis skipped because OPENROUTER_ENABLED=false."
+        ]
 
     prompt = (
         "Create a source-grounded company overview for interview preparation. "

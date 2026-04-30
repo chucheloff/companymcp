@@ -8,7 +8,11 @@ from company_mcp.cache.company_table import upsert_company_provider_result
 from company_mcp.cache.store import get_json, get_ttl, set_json
 from company_mcp.config import settings
 from company_mcp.mcp.schemas import LinkedInLookupInput, LinkedInLookupOutput, LinkedInMatch
-from company_mcp.models.openrouter import OpenRouterClient, OpenRouterUnavailable
+from company_mcp.models.openrouter import (
+    OpenRouterClient,
+    OpenRouterUnavailable,
+    is_enabled as openrouter_enabled,
+)
 from company_mcp.providers.tavily_news import tavily_search
 
 
@@ -55,7 +59,7 @@ async def lookup_linkedin(data: LinkedInLookupInput) -> LinkedInLookupOutput:
     warnings = ["LinkedIn data is search-result-derived; profile details may be incomplete."]
     rows = result_json.get("results", [])
     normalized = await _normalize_candidates(data, rows)
-    if normalized is None and settings.openrouter_api_key:
+    if normalized is None and data.use_openrouter and openrouter_enabled() and settings.openrouter_api_key:
         warnings.append("OpenRouter LinkedIn snippet normalization failed; using raw snippets.")
 
     matches: list[LinkedInMatch] = []
@@ -124,6 +128,8 @@ def _cache_key(data: LinkedInLookupInput, query: str) -> str:
         "name": data.name.strip().lower(),
         "company": (data.company or "").strip().lower(),
         "title_hint": (data.title_hint or "").strip().lower(),
+        "use_openrouter": data.use_openrouter,
+        "openrouter_enabled": openrouter_enabled(),
     }
     digest = hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()[:16]
     name_key = _cache_component(data.name)
@@ -230,7 +236,7 @@ async def _normalize_candidates(
     data: LinkedInLookupInput,
     rows: list[dict],
 ) -> dict[str, dict] | None:
-    if not settings.openrouter_api_key:
+    if not data.use_openrouter or not openrouter_enabled() or not settings.openrouter_api_key:
         return None
 
     candidates = []

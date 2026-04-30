@@ -9,6 +9,7 @@ Standalone MCP server for interview-prep company research. This repository is sc
 2. Set required keys in `.env`:
    - `TAVILY_API_KEY` (needed for `recent_news`)
    - `OPENROUTER_API_KEY` (optional; enables LLM summarization and final overview synthesis)
+   - `OPENROUTER_ENABLED=false` skips all OpenRouter calls globally when you want faster, cheaper deterministic results
 3. Start services:
    - `make up`
 4. Check health:
@@ -100,6 +101,7 @@ The server should support multiple extractor pipelines behind a common interface
 Each tool call should be able to select a pipeline explicitly, or use `auto`, where the server tries cheap deterministic extraction first and escalates only when confidence is low.
 
 Current `company_profile` supports `pipeline`: `auto`, `metadata`, `dom_rules`, `llm_extract`, and `browser_snapshot`.
+Set `use_openrouter=false` on tool calls to skip OpenRouter-backed extraction, summarization, LinkedIn snippet normalization, and final overview synthesis for that request.
 
 ## Tool Contracts
 
@@ -112,7 +114,8 @@ Input:
   "domain": "example.com",
   "max_pages": 8,
   "freshness_hours": 168,
-  "pipeline": "auto"
+  "pipeline": "auto",
+  "use_openrouter": true
 }
 ```
 
@@ -273,7 +276,7 @@ Returns the company-scoped aggregate cache stored at `company_research:v1:<compa
 
 Looks for a likely English Wikipedia page for the company and returns a short summary, canonical page URL, confidence, and warnings. This uses public Wikipedia APIs with an app-specific `User-Agent`, tries the REST summary endpoint first, and falls back to the MediaWiki Action API when REST is blocked. It does not require a separate API key.
 
-### `company_overview(company, domain?, days=30, news_limit=5, max_pages=8, include_wikipedia=true)`
+### `company_overview(company, domain?, days=30, news_limit=5, max_pages=8, include_wikipedia=true, use_openrouter=true)`
 
 Runs the company-level providers and returns a synthesized company overview:
 
@@ -284,6 +287,7 @@ Runs the company-level providers and returns a synthesized company overview:
 - `cached_company_results` so the output reflects provider results already stored for the company.
 
 The final `overview` field is synthesized through OpenRouter `synthesize_json(...)`, which routes to the `final_brief` task and therefore uses `OPENROUTER_QUALITY_MODEL`. If OpenRouter is unavailable, the tool returns a deterministic fallback overview from the collected provider data and includes a warning.
+When `use_openrouter=false`, provider collection still runs but OpenRouter summarization/normalization/synthesis is skipped and the deterministic fallback overview is returned.
 
 ## Internal Modules
 
@@ -307,6 +311,7 @@ Model IDs should be environment variables, not hard-coded, because OpenRouter mo
 Configure model routing with:
 
 ```env
+OPENROUTER_ENABLED=true
 OPENROUTER_MODEL_TIER=free
 OPENROUTER_FREE_EXTRACTION_MODEL=openrouter/free
 OPENROUTER_FREE_QUALITY_MODEL=openrouter/free

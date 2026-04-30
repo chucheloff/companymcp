@@ -62,6 +62,19 @@ def test_company_profile_cache_key_includes_freshness() -> None:
     assert first != second
 
 
+def test_company_profile_cache_key_includes_openrouter_flag() -> None:
+    first = _company_profile_cache_key(
+        CompanyProfileInput(domain="example.com", use_openrouter=True),
+        "example.com",
+    )
+    second = _company_profile_cache_key(
+        CompanyProfileInput(domain="example.com", use_openrouter=False),
+        "example.com",
+    )
+
+    assert first != second
+
+
 def test_challenge_page_detection() -> None:
     page = PageDocument(
         url="https://openai.com",

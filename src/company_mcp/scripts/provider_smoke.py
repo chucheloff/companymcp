@@ -8,6 +8,8 @@ from company_mcp.providers.tavily_news import fetch_recent_news
 
 
 async def _check_openrouter() -> tuple[bool, str]:
+    if not settings.openrouter_enabled:
+        return True, "OpenRouter skipped because OPENROUTER_ENABLED=false."
     if not settings.openrouter_api_key:
         return False, "OPENROUTER_API_KEY is missing."
 
@@ -34,6 +36,7 @@ async def _check_tavily() -> tuple[bool, str]:
             domain="microsoft.com",
             days=7,
             limit=3,
+            use_openrouter=False,
         )
     )
     if result.warnings and not result.items:

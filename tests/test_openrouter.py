@@ -1,3 +1,5 @@
+import pytest
+
 from company_mcp.models import openrouter
 
 
@@ -50,3 +52,12 @@ def test_max_tokens_for_task_caps_openrouter_reservations() -> None:
     assert openrouter.max_tokens_for_task("company_profile_extract") == 1200
     assert openrouter.max_tokens_for_task("final_brief") == 2000
     assert openrouter.max_tokens_for_task("quality_synthesis") == 2000
+
+
+@pytest.mark.anyio
+async def test_openrouter_client_respects_global_disable(monkeypatch) -> None:
+    monkeypatch.setattr(openrouter.settings, "openrouter_enabled", False)
+    client = openrouter.OpenRouterClient(api_key="test")
+
+    with pytest.raises(openrouter.OpenRouterUnavailable, match="OPENROUTER_ENABLED=false"):
+        await client.chat(system_prompt="s", user_prompt="u", task="news_summary")

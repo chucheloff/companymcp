@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     mcp_path: str = "/mcp"
 
     tavily_api_key: str | None = Field(default=None)
+    openrouter_enabled: bool = True
     openrouter_api_key: str | None = Field(default=None)
     openrouter_model_tier: str = "free"
     openrouter_free_extraction_model: str = "openrouter/free"
