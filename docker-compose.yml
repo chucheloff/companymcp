@@ -3,6 +3,9 @@ services:
     image: valkey/valkey:8-alpine
     container_name: company-valkey
     restart: unless-stopped
+    command: ["valkey-server", "--appendonly", "yes", "--appendfsync", "everysec", "--save", "60", "1"]
+    volumes:
+      - valkey-data:/data
     healthcheck:
       test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
@@ -41,3 +44,6 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+
+volumes:
+  valkey-data:
